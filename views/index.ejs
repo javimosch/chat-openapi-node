@@ -1,0 +1,52 @@
+<div id="app" class="container mx-auto px-4 py-8">
+    <div class="max-w-6xl mx-auto">
+
+         <!-- Title Section -->
+         <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-blue-700 tracking-wide">
+                Chat with OpenAPI !
+                <span class="inline-block animate-bounce ml-2">🤖</span>
+            </h1>
+            <p class="text-gray-600 mt-2">Ask questions about your API documentation</p>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <!-- Chat Messages -->
+            <div class="space-y-4 mb-4 h-[600px] overflow-y-auto" ref="chatContainer">
+                <div v-for="message in messages" :key="message.id" 
+                     :class="['p-4 rounded-lg', message.role === 'user' ? 'bg-blue-100 ml-24' : 'bg-gray-100 mr-24']">
+                    <div class="text-sm font-semibold mb-1">
+                        {{ message.role === 'user' ? 'You' : 'Assistant' }}
+                    </div>
+                    <div class="markdown" v-html="marked.parse(message.content)"></div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="border-t pt-4">
+                <form @submit.prevent="sendMessage" class="flex gap-2">
+                    <input 
+                        v-model="input"
+                        type="text"
+                        placeholder="Type your message..."
+                        class="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500"
+                    >
+                    <button 
+                        type="submit"
+                        class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 focus:outline-none"
+                        :disabled="!input.trim()"
+                    >
+                        Send
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Upload Button -->
+        <div class="mt-4 text-center">
+            <a href="/upload" class="text-blue-500 hover:text-blue-600">
+                Upload OpenAPI Specification
+            </a>
+        </div>
+    </div>
+</div>

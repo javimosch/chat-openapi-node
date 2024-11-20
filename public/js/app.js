@@ -9,6 +9,7 @@ if (document.getElementById('app')) {
             const chatContainer = ref(null)
             const ws = ref(null)
             const isConnected = ref(false)
+            const isLoading = ref(false)
 
             // Configure marked options
             marked.setOptions({
@@ -50,6 +51,7 @@ if (document.getElementById('app')) {
                                 content: data.data.text,
                                 id: Date.now()
                             })
+                            isLoading.value = false
                             scrollToBottom()
                         } else if (data.type === 'error') {
                             messages.value.push({
@@ -57,10 +59,12 @@ if (document.getElementById('app')) {
                                 content: 'Error: ' + data.data.message,
                                 id: Date.now()
                             })
+                            isLoading.value = false
                             scrollToBottom()
                         }
                     } catch (error) {
                         console.error('Failed to parse WebSocket message:', error)
+                        isLoading.value = false
                     }
                 }
 
@@ -71,13 +75,15 @@ if (document.getElementById('app')) {
                         content: 'Connection error. Trying to reconnect...',
                         id: Date.now()
                     })
+                    isLoading.value = false
                     scrollToBottom()
                 }
             }
 
             const sendMessage = () => {
-                if (!input.value.trim() || !isConnected.value) return
+                if (!input.value.trim() || !isConnected.value || isLoading.value) return
 
+                isLoading.value = true
                 const message = {
                     role: 'user',
                     content: input.value,
@@ -103,6 +109,7 @@ if (document.getElementById('app')) {
                 sendMessage,
                 chatContainer,
                 isConnected,
+                isLoading,
                 marked: window.marked
             }
         }

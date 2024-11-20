@@ -7,6 +7,7 @@ const path = require('path');
 const expressLayouts = require('express-ejs-layouts');
 const { initPinecone, processOpenAPISpec, getProcessingStatus, generateChatResponse, querySimilarChunks } = require('./utils/openapi');
 const { createModuleLogger } = require('./utils/logger');
+const basicAuth = require('express-basic-auth');
 
 const logger = createModuleLogger('server');
 const app = express();
@@ -22,6 +23,15 @@ app.set('layout extractStyles', true);
 app.set('layout', './layout');
 app.use(express.static('public'));
 app.use(express.json());
+
+if (process.env.BASIC_AUTH_USER && process.env.BASIC_AUTH_PASSWORD) {
+    app.use(basicAuth({
+        users: {
+            [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD
+        },
+        challenge: true
+    }));
+}
 
 // Routes
 app.get('/', (req, res) => {

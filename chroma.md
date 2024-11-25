@@ -55,15 +55,85 @@
 
 ## Schemas
 
-- **AddEmbedding** - object
-- **CreateCollection** - object
-- **CreateDatabase** - object
-- **CreateTenant** - object
-- **DeleteEmbedding** - object
-- **GetEmbedding** - object
-- **HTTPValidationError** - object
-- **IncludeEnum** - string
-- **QueryEmbedding** - object
-- **UpdateCollection** - object
-- **UpdateEmbedding** - object
-- **ValidationError** - object
+### AddEmbedding
+
+- **embedding_id**: `str`
+  - Description: Unique identifier for the embedding.
+  - Constraints: Must be a valid UUID.
+- **vector**: `List[float]`
+  - Description: The vector representation of the embedding.
+  - Constraints: Must be a list of floats.
+
+### CreateCollection
+
+- **name**: `str`
+  - Description: The name of the collection.
+  - Constraints: Maximum length of 255 characters.
+
+### CreateDatabase
+
+- **database_name**: `str`
+  - Description: The name of the database.
+  - Constraints: Maximum length of 255 characters.
+
+### CreateTenant
+
+- **tenant_id**: `str`
+  - Description: Unique identifier for the tenant.
+  - Constraints: Must be a valid UUID.
+
+### DeleteEmbedding
+
+- **embedding_id**: `str`
+  - Description: Unique identifier for the embedding to delete.
+  - Constraints: Must be a valid UUID.
+
+### GetEmbedding
+
+- **embedding_id**: `str`
+  - Description: Unique identifier for the embedding to retrieve.
+  - Constraints: Must be a valid UUID.
+
+### HTTPValidationError
+
+- **detail**: `List[ValidationError]`
+  - Description: List of validation errors.
+
+### IncludeEnum
+
+- **value**: `str`
+  - Description: Enum value for inclusion.
+  - Constraints: Must be one of the predefined enum values.
+
+### QueryEmbedding
+
+- **query_vector**: `List[float]`
+  - Description: The vector to query against the embeddings.
+  - Constraints: Must be a list of floats.
+
+### UpdateCollection
+
+- **collection_id**: `str`
+  - Description: Unique identifier for the collection to update.
+  - Constraints: Must be a valid UUID.
+- **new_name**: `str`
+  - Description: New name for the collection.
+  - Constraints: Maximum length of 255 characters.
+
+### UpdateEmbedding
+
+- **embedding_id**: `str`
+  - Description: Unique identifier for the embedding to update.
+  - Constraints: Must be a valid UUID.
+- **new_vector**: `List[float]`
+  - Description: The new vector representation of the embedding.
+  - Constraints: Must be a list of floats.
+
+### ValidationError
+
+- **loc**: `List[Union[str, int]]`
+  - Description: Location of the error.
+- **msg**: `str`
+  - Description: Error message.
+- **type**: `str`
+  - Description: Type of error.

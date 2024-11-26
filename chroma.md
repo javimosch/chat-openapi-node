@@ -53,6 +53,87 @@
 - **DELETE** `/api/v2/tenants/{tenant}/databases/{database_name}/collections/{collection_name}` - Delete Collection
 - **PUT** `/api/v2/tenants/{tenant}/databases/{database_name}/collections/{collection_id}` - Update Collection
 
+## Client Specification
+
+### JavaScript Client
+
+The Chroma JavaScript client allows you to interact with the Chroma server from your JavaScript applications. Below are the main methods available in the client:
+
+#### Installation
+
+To install the Chroma JavaScript client, use one of the following package managers:
+
+```bash
+# Using yarn
+yarn add chromadb chromadb-default-embed
+
+# Using npm
+npm install chromadb chromadb-default-embed
+
+# Using pnpm
+pnpm add chromadb chromadb-default-embed
+```
+
+#### Usage
+
+Here is an example of how to use the Chroma JavaScript client:
+
+```javascript
+import { ChromaClient } from 'chromadb';
+
+const client = new ChromaClient({
+  apiKey: 'your-api-key',
+  baseUrl: 'http://localhost:8123',
+});
+
+// Example: Creating a collection
+const collection = await client.createCollection('my-collection');
+
+// Example: Adding an embedding
+await collection.addEmbedding({
+  embeddingId: 'embedding-id',
+  vector: [0.1, 0.2, 0.3],
+});
+
+// Example: Querying embeddings
+const results = await collection.queryEmbeddings({
+  queryVector: [0.1, 0.2, 0.3],
+  topK: 5,
+});
+
+console.log(results);
+```
+
+#### Methods
+
+- **createCollection(name: string): Promise<Collection>**
+  - Creates a new collection with the specified name.
+
+- **getCollection(name: string): Promise<Collection>**
+  - Retrieves an existing collection by name.
+
+- **listCollections(): Promise<Collection[]>**
+  - Lists all collections.
+
+- **deleteCollection(name: string): Promise<void>**
+  - Deletes a collection by name.
+
+### Collection Methods
+
+- **addEmbedding(embedding: { embeddingId: string, vector: number[] }): Promise<void>**
+  - Adds a new embedding to the collection.
+
+- **queryEmbeddings(query: { queryVector: number[], topK: number }): Promise<Embedding[]>**
+  - Queries the collection for the nearest embeddings to the provided query vector.
+
+- **deleteEmbedding(embeddingId: string): Promise<void>**
+  - Deletes an embedding from the collection by its ID.
+
+- **updateEmbedding(embedding: { embeddingId: string, vector: number[] }): Promise<void>**
+  - Updates an existing embedding in the collection.
+
+For more details, refer to the [official documentation](https://docs.trychroma.com/reference/js-client).
+
 ## Schemas
 
 ### AddEmbedding

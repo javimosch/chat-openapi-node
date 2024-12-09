@@ -29,15 +29,22 @@ const logger = winston.createLogger({
     process.env.LOG_FORMAT === 'json' ? format.json() : textFormat
   ),
   transports: [
-    process.env.LOG_OUTPUT === 'file' && process.env.LOG_FILE_PATH
-      ? new winston.transports.File({ filename: process.env.LOG_FILE_PATH })
-      : new winston.transports.Console()
+    new winston.transports.Console(),
+    (process.env.LOG_OUTPUT || "")
+      .toLowerCase() // Normalize to lowercase for comparison
+      .split(",")
+      .map((s) => s.trim()) // Remove leading/trailing whitespace
+      .includes("file")
+      ? new winston.transports.File({
+          filename: process.env.LOG_FILE_PATH || `${process.cwd()}/logs/stdout.log`,
+        })
+      : null,
   ].filter(Boolean)
 });
 
 // Helper function to create a logger for a specific module
 function createModuleLogger(moduleName) {
-  return {
+  const loggerInstance = {
     error: (message, func = '', meta = {}) => {
       logger.error(message, { module: moduleName, function: func, ...meta });
     },
@@ -49,8 +56,22 @@ function createModuleLogger(moduleName) {
     },
     debug: (message, func = '', meta = {}) => {
       logger.debug(message, { module: moduleName, function: func, ...meta });
+    },
+    trackElapsed: async function(asyncFn, loggerText, ...args) {
+      const startTime = Date.now();
+      try {
+        await asyncFn(...args);
+      } finally {
+        const endTime = Date.now();
+        const executionTime = (endTime - startTime) / 1000; // in seconds
+        this.info(`${loggerText} in ${executionTime} seconds`, {
+          args,
+        });
+      }
     }
   };
+  
+  return loggerInstance;
 }
 
 module.exports = { createModuleLogger };

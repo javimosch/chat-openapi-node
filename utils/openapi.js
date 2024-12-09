@@ -257,13 +257,14 @@ async function processInBackground(specContent, fileName) {
             const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
             await index.upsert([{
                 id: `file:${fileName}`,
-                values: Array(1536).fill(0), // Default dimension for ada-002
+                values: Array(1536).fill(0).map((_, i) => i === 0 ? 1 : 0), // First value is 1, rest are 0
                 metadata: {
                     ...fileMetadata,
                     isFileMetadata: true
                 }
             }]);
-            await storeEmbeddingsInBatches(chunks, fileName);
+            //await storeEmbeddingsInBatches(chunks, fileName);
+            await logger.trackElapsed(()=>storeEmbeddingsInBatches(chunks, fileName),'storeEmbeddingsInBatches for file '+fileName)
         }
 
         // Update file status to completed
@@ -288,7 +289,16 @@ async function processInBackground(specContent, fileName) {
     }
 }
 
-// Store embeddings in Pinecone with batching
+/**
+ * Stores embeddings in batches for the given chunks and file name.
+ *
+ * @param {Array} chunks - The array of chunks to store embeddings for.
+ * @param {string} fileName - The name of the file being processed.
+ *
+ * @throws {Error} If an error occurs while storing the embeddings.
+ *
+ * @async
+ */
 async function storeEmbeddingsInBatches(chunks, fileName) {
     logger.info('Storing embeddings', 'storeEmbeddingsInBatches', {
         fileName,
@@ -297,7 +307,7 @@ async function storeEmbeddingsInBatches(chunks, fileName) {
 
     try {
         const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
-        const batchSize = 100;
+        const batchSize = 100; // Adjust batch size as needed
         const totalBatches = Math.ceil(chunks.length / batchSize);
 
         for (let i = 0; i < chunks.length; i += batchSize) {
@@ -386,8 +396,8 @@ async function querySimilarChunks(query) {
         // Generate query embedding
         const [queryEmbedding] = await embeddings.embedDocuments([query]);
 
-        // Query Pinecone
-        const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
+        // Query Pinecone using dynamic index
+        const index = wrapPineconeIndex(pinecone.index(global.DYNAMIC_PINECONE_INDEX || process.env.PINECONE_INDEX));
         
         // Query without filter first
         const results = await index.query({
@@ -426,6 +436,15 @@ async function querySimilarChunks(query) {
             });
         }
 
+        // Log the context that will be used for LLM completion
+        logger.info('Context for LLM completion', 'querySimilarChunks', {
+            context: results.matches?.map(m => ({
+                score: m.score,
+                metadata: m.metadata,
+                id: m.id
+            }))
+        });
+
         return results.matches || [];
     } catch (error) {
         logger.error('Failed to query similar chunks', 'querySimilarChunks', { error });
@@ -449,8 +468,12 @@ async function generateChatResponse(query) {
         const method = metadata.method || '';
         const score = chunk.score || 0;
 
-        // If no text content, generate a description from the metadata
-        const description = text || generateDescription(metadata);
+        const schemaDetails = [
+            ...(metadata.request_schema_details || []),
+            ...(metadata.response_schema_details || [])
+        ];
+
+        const description = text || schemaDetails.join(', ') || generateDescription(metadata);
         
         return {
             text: description,

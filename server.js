@@ -8,6 +8,7 @@ const expressLayouts = require('express-ejs-layouts');
 const { initPinecone, processOpenAPISpec, getProcessingStatus, generateChatResponse, querySimilarChunks } = require('./utils/openapi');
 const { createModuleLogger } = require('./utils/logger');
 const basicAuth = require('express-basic-auth');
+const fs = require('fs');
 
 const logger = createModuleLogger('server');
 const app = express();
@@ -18,7 +19,7 @@ const wss = new WebSocket.Server({ server });
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(expressLayouts);
-app.set('layout extractScripts', true);
+app.set('layout extractScripts', false);
 app.set('layout extractStyles', true);
 app.set('layout', './layout');
 app.use(express.static('public'));
@@ -44,6 +45,22 @@ app.get('/upload', (req, res) => {
 
 app.get('/admin', (req, res) => {
     res.render('admin');
+});
+
+app.get('/admin/logs', (req, res) => {
+    res.render('admin-logs');
+});
+
+app.get('/api/admin/logs', (req, res) => {
+    const logFilePath = process.env.LOG_FILE_PATH || `${process.cwd()}/logs/stdout.log`;
+    fs.readFile(logFilePath, 'utf8', (err, data) => {
+        if (err) {
+            res.status(500).json({ error: 'Failed to read log file' });
+        } else {
+            const logs = data.split('\n').slice(-200).reverse();
+            res.json(logs);
+        }
+    });
 });
 
 // Initialize global variable for dynamic Pinecone index

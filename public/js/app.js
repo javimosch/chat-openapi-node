@@ -193,3 +193,49 @@ if (document.getElementById('upload')) {
         }
     }).mount('#upload')
 }
+
+// Admin Application
+if (document.getElementById('admin')) {
+    const { createApp, ref } = Vue
+
+    createApp({
+        setup() {
+            const pineconeIndex = ref('')
+            const status = ref(null)
+
+            const savePineconeIndex = async () => {
+                try {
+                    const response = await fetch('/api/admin/pinecone-index', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ pineconeIndex: pineconeIndex.value }),
+                    })
+
+                    const data = await response.json()
+                    
+                    if (response.ok) {
+                        status.value = {
+                            type: 'success',
+                            message: data.message
+                        }
+                    } else {
+                        throw new Error(data.error || 'Failed to update Pinecone index')
+                    }
+                } catch (error) {
+                    status.value = {
+                        type: 'error',
+                        message: error.message
+                    }
+                }
+            }
+
+            return {
+                pineconeIndex,
+                status,
+                savePineconeIndex
+            }
+        }
+    }).mount('#admin')
+}

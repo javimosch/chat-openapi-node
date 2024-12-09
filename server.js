@@ -42,6 +42,29 @@ app.get('/upload', (req, res) => {
     res.render('upload');
 });
 
+app.get('/admin', (req, res) => {
+    res.render('admin');
+});
+
+// Initialize global variable for dynamic Pinecone index
+global.DYNAMIC_PINECONE_INDEX = process.env.PINECONE_INDEX;
+
+// API endpoint to update Pinecone index
+app.post('/api/admin/pinecone-index', (req, res) => {
+    try {
+        const { pineconeIndex } = req.body;
+        if (!pineconeIndex) {
+            return res.status(400).json({ error: 'Pinecone index is required' });
+        }
+        global.DYNAMIC_PINECONE_INDEX = pineconeIndex;
+        logger.info('Updated Pinecone index', 'admin', { newIndex: pineconeIndex });
+        res.json({ success: true, message: 'Pinecone index updated successfully' });
+    } catch (error) {
+        logger.error('Failed to update Pinecone index', 'admin', { error });
+        res.status(500).json({ error: 'Failed to update Pinecone index' });
+    }
+});
+
 // Initialize Pinecone
 let pineconeIndex;
 initPinecone().then(index => {

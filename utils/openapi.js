@@ -468,22 +468,22 @@ async function generateChatResponse(query) {
         const method = metadata.method || '';
         const score = chunk.score || 0;
 
-        const schemaDetails = [
-            ...(metadata.request_schema_details || []),
-            ...(metadata.response_schema_details || [])
-        ];
+        // Extract schema properties and required properties
+        const schemaProperties = metadata.schema_properties || [];
+        const schemaRequired = metadata.schema_required || [];
 
-        const description = text || schemaDetails.join(', ') || generateDescription(metadata);
-        
+        // Generate description if no text is found
+        const description = text || schemaProperties.join(', ') || schemaRequired.join(', ') || generateDescription(metadata);
         return {
             text: description,
             type,
             path,
             method,
-            score
+            score,
+            schemaProperties,
+            schemaRequired
         };
-    }).filter(chunk => chunk.text);
-
+    }).filter(chunk => chunk.text || chunk.schemaProperties.length > 0 || chunk.schemaRequired.length > 0);
     // Log extracted context
     logger.info('Extracted context', 'generateChatResponse', {
         contextItems: context.map(c => ({

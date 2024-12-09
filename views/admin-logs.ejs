@@ -1,0 +1,26 @@
+<div id="admin-logs" class="container mx-auto px-4 py-8">
+    <div class="max-w-2xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Admin Logs</h1>
+            <div id="logs"></div>
+            <script>
+                function fetchLogs() {
+                    fetch('/api/admin/logs')
+                       .then(response => response.json())
+                       .then(data => {
+                            const logsDiv = document.getElementById('logs');
+                            logsDiv.innerHTML = '';
+                            data.forEach(log => {
+                                const logElement = document.createElement('p');
+                                logElement.textContent = log;
+                                logsDiv.appendChild(logElement);
+                            });
+                        });
+                }
+
+                fetchLogs();
+                setInterval(fetchLogs, 5000);
+            </script>
+        </div>
+    </div>
+</div>

@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { createModuleLogger } = require('./logger');
+const { OpenAPICSVProcessor } = require('./csv-processor');
 const logger = createModuleLogger('chunking');
 
 /**
@@ -237,4 +238,4 @@ class OpenAPIChunker {
   }
 }
 
-module.exports = { OpenAPIChunker };
+module.exports = { OpenAPIChunker, OpenAPICSVProcessor };

@@ -234,6 +234,61 @@ async function findInCSV(query) {
     }
 }
 
+router.post('/health/csv', async (req, res) => {
+    try {
+        const csvProcessor = new OpenAPICSVProcessor();
+        const rows = await csvProcessor.parseCSVContent(req.body);
+
+        // Store metadata in MongoDB and create vectors
+        const metadataResults = await csvProcessor.processCSVRowsAndStoreMetadata(rows);
+
+        // Create chunks for vector storage
+        const chunks = rows.map((row, index) => {
+            const chunk = csvProcessor.createChunkFromRow(row);
+            const metadata = metadataResults.find(r => 
+                r.endpoint === row.ENDPOINT && 
+                r.method === row.METHOD
+            );
+
+            return {
+                ...chunk,
+                metadata: {
+                    ...chunk.metadata,
+                    mongo_ref: metadata?.mongoId?.toString()
+                }
+            };
+        });
+
+        // Store vectors in Pinecone
+        const pinecone = new Pinecone({
+            apiKey: process.env.PINECONE_API_KEY,
+        });
+        const index = pinecone.index(process.env.PINECONE_INDEX);
+        for (const chunk of chunks) {
+            const vector = {
+                id: chunk.metadata.vector_id,
+                values: await embeddings.embedQuery(chunk.text),
+                metadata: chunk.metadata
+            };
+            await index.upsert([vector]);
+        }
+
+        res.json({
+            success: true,
+            message: 'CSV processed successfully',
+            totalRows: rows.length,
+            metadataResults
+        });
+
+    } catch (error) {
+        logger.error('Failed to process CSV', 'health.csv', { error });
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 router.get('/csv_health', async (req, res) => {
     try {
         logger.info('Starting CSV health check');

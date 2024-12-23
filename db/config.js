@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const { createModuleLogger } = require('../utils/logger');
-const Todo = require('../models/todo');
 
 const logger = createModuleLogger('db-config');
 

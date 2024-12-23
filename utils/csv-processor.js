@@ -1,6 +1,8 @@
 const csvParse = require('csv-parse');
 const { v4: uuidv4 } = require('uuid');
 const { createModuleLogger } = require('./logger');
+const path = require('path');
+const Metadata = require('../models/metadata');
 
 const logger = createModuleLogger('csv-processor');
 
@@ -141,19 +143,11 @@ class OpenAPICSVProcessor {
                 firstRecord: records[0] ? Object.keys(records[0]) : []
             });
 
-            return {
-                records: { records },
-                info: {
-                    lines: records.length + 1,
-                    records: records.length
-                }
-            };
+            return records;
+
         } catch (error) {
-            logger.error('Error parsing CSV', 'parseCSV', {
-                error: error.message,
-                stack: error.stack
-            });
-            throw error;
+            logger.error('Failed to parse CSV', 'parseCSV', { error });
+            throw new Error(`Failed to parse CSV: ${error.message}`);
         }
     }
 
@@ -161,39 +155,30 @@ class OpenAPICSVProcessor {
      * Generate chunks from CSV records
      */
     async generateChunks(records) {
-        const { records: rows, info } = records;
-        logger.info('Generating chunks from CSV records', 'generateChunks', {
-            recordCount: rows.length,
-            totalLines: info.lines
-        });
-
         const chunks = [];
         const errors = [];
 
-        for (let i = 0; i < rows.length; i++) {
-            const record = rows[i];
+        logger.info('Starting chunk generation', 'generateChunks', {
+            recordCount: records.length
+        });
+
+        for (let i = 0; i < records.length; i++) {
+            const record = records[i];
             const lineNumber = i + 2; // Add 2 to account for 0-based index and header row
 
             try {
-                logger.debug('Processing record', 'generateChunks', {
-                    lineNumber,
-                    endpoint: record.ENDPOINT,
-                    method: record.METHOD
-                });
-
-                // Validate required fields
+                // Skip records without required fields
                 if (!record.ENDPOINT || !record.METHOD) {
-                    throw new Error('Missing required fields: ENDPOINT and METHOD are required');
+                    errors.push({
+                        lineNumber,
+                        endpoint: record.ENDPOINT || '',
+                        method: record.METHOD || '',
+                        error: 'Missing required fields: ENDPOINT and METHOD are required'
+                    });
+                    continue; // Skip this record but continue processing
                 }
 
-                // Parse JSON strings in fields if they exist
-                const parameters = this.parseJsonField(record.PARAMETERS, 'PARAMETERS', lineNumber);
-                const requestBody = this.parseJsonField(record.REQUEST_BODY, 'REQUEST_BODY', lineNumber);
-                const responses = this.parseJsonField(record.RESPONSES, 'RESPONSES', lineNumber);
-                const security = this.parseJsonField(record.SECURITY, 'SECURITY', lineNumber);
-                const servers = this.parseJsonField(record.SERVERS, 'SERVERS', lineNumber);
-                const schemas = this.parseJsonField(record.SCHEMAS, 'SCHEMAS', lineNumber);
-
+                // Create chunk with metadata
                 const chunk = {
                     text: this.formatEndpointText(record, lineNumber),
                     metadata: {
@@ -204,47 +189,81 @@ class OpenAPICSVProcessor {
                         summary: record.SUMMARY,
                         description: record.DESCRIPTION,
                         line_number: lineNumber,
-                        parameters,
-                        requestBody,
-                        responses,
-                        security,
-                        servers,
-                        schemas,
+                        vector_id: `${this.specId}-${lineNumber}`, // Add vector_id for Pinecone
+                        parameters: this.parseJsonField(record.PARAMETERS, 'PARAMETERS', lineNumber),
+                        requestBody: this.parseJsonField(record.REQUEST_BODY, 'REQUEST_BODY', lineNumber),
+                        responses: this.parseJsonField(record.RESPONSES, 'RESPONSES', lineNumber),
+                        security: this.parseJsonField(record.SECURITY, 'SECURITY', lineNumber),
+                        servers: this.parseJsonField(record.SERVERS, 'SERVERS', lineNumber),
+                        schemas: this.parseJsonField(record.SCHEMAS, 'SCHEMAS', lineNumber),
                         tags: record.TAGS ? record.TAGS.split(',').map(t => t.trim()) : []
                     }
                 };
 
+                logger.info('Creating chunk from row', 'generateChunks', {
+                    lineNumber,
+                    endpoint: record.ENDPOINT,
+                    method: record.METHOD
+                });
+
                 chunks.push(chunk);
                 logger.debug('Successfully processed record', 'generateChunks', {
                     lineNumber,
-                    endpoint: record.ENDPOINT
-                });
-            } catch (error) {
-                const errorInfo = {
-                    lineNumber,
                     endpoint: record.ENDPOINT,
-                    method: record.METHOD,
+                    method: record.METHOD
+                });
+
+            } catch (error) {
+                logger.error('Error processing record', 'generateChunks', {
+                    lineNumber,
+                    endpoint: record.ENDPOINT || '',
+                    method: record.METHOD || '',
                     error: error.message
-                };
-                errors.push(errorInfo);
-                logger.error('Error processing record', 'generateChunks', errorInfo);
+                });
+                errors.push({
+                    lineNumber,
+                    endpoint: record.ENDPOINT || '',
+                    method: record.METHOD || '',
+                    error: error.message
+                });
                 // Continue processing other records
             }
         }
 
         // Log summary
         logger.info('Chunk generation complete', 'generateChunks', {
-            totalRecords: rows.length,
+            totalRecords: records.length,
             successfulChunks: chunks.length,
             failedRecords: errors.length,
-            errors: errors
+            errors
         });
 
-        if (errors.length > 0) {
-            throw new Error(`Failed to process ${errors.length} records. Check logs for details.`);
+        // Only throw if all records failed
+        if (chunks.length === 0) {
+            throw new Error('Failed to process any records. Check logs for details.');
         }
 
-        return chunks;
+        return { chunks, errors }; // Return both chunks and errors
+    }
+
+    /**
+     * Create a chunk from a CSV row
+     */
+    createChunkFromRow(row) {
+        const text = this.formatEndpointText(row);
+        const endpoint = row.ENDPOINT;
+        const method = row.METHOD;
+
+        return {
+            text,
+            metadata: {
+                endpoint,
+                method,
+                vector_id: `${endpoint}-${method}`.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                type: 'endpoint',
+                spec_id: this.specId
+            }
+        };
     }
 
     /**
@@ -356,6 +375,106 @@ class OpenAPICSVProcessor {
         }
 
         return parts.join('\n');
+    }
+
+    /**
+     * Process a CSV row and store metadata in MongoDB
+     */
+    async processCSVRowAndStoreMetadata(row, csvFilePath) {
+        try {
+            const endpoint = row.ENDPOINT;
+            const method = row.METHOD;
+
+            if (!endpoint || !method) {
+                throw new Error('Missing required fields: ENDPOINT and METHOD');
+            }
+
+            // Create metadata fields
+            const metadataFields = {
+                endpoint,
+                method,
+                summary: row.SUMMARY || '',
+                description: row.DESCRIPTION || '',
+                parameters: row.PARAMETERS || '',
+                requestBody: row.REQUEST_BODY || '',
+                responses: row.RESPONSES || '',
+                security: row.SECURITY || '',
+                servers: row.SERVERS || '',
+                schemas: row.SCHEMAS || '',
+                tags: row.TAGS ? row.TAGS.split(',').map(t => t.trim()) : [],
+                filepath: csvFilePath,
+                vector_id: `${endpoint}-${method}`.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                file_name: path.basename(csvFilePath),
+                chunk_index: 0,
+                is_file_metadata: false,
+                spec_id: this.specId,
+                type: 'endpoint'
+            };
+
+            // Log the metadata being saved
+            logger.debug('Saving metadata', 'processCSVRowAndStoreMetadata', {
+                endpoint,
+                method,
+                vector_id: metadataFields.vector_id
+            });
+
+            // Update or create metadata in MongoDB
+            const result = await Metadata.findOneAndUpdate(
+                { endpoint, method },
+                { $set: metadataFields },
+                { 
+                    upsert: true, 
+                    new: true,
+                    runValidators: true 
+                }
+            );
+
+            return {
+                status: 'updated',
+                endpoint,
+                method,
+                mongoId: result._id
+            };
+
+        } catch (error) {
+            logger.error('Failed to process CSV row', 'processCSVRowAndStoreMetadata', {
+                error: error.message,
+                row
+            });
+            return {
+                status: 'error',
+                error: error.message,
+                endpoint: row.ENDPOINT,
+                method: row.METHOD
+            };
+        }
+    }
+
+    /**
+     * Process multiple CSV rows and store metadata
+     */
+    async processCSVRowsAndStoreMetadata(rows, csvFilePath) {
+        logger.info('Processing CSV rows', 'processCSVRowsAndStoreMetadata', {
+            rowCount: rows.length,
+            csvFile: path.basename(csvFilePath)
+        });
+
+        const results = [];
+        for (const row of rows) {
+            const result = await this.processCSVRowAndStoreMetadata(row, csvFilePath);
+            results.push(result);
+        }
+
+        const successCount = results.filter(r => r.status === 'updated').length;
+        const errorCount = results.filter(r => r.status === 'error').length;
+
+        logger.info('Finished processing CSV rows', 'processCSVRowsAndStoreMetadata', {
+            total: results.length,
+            success: successCount,
+            error: errorCount
+        });
+
+        return results;
     }
 }
 

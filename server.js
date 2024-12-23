@@ -64,13 +64,13 @@ app.get('/', (req, res) => {
 
 app.get('/upload', (req, res) => {
     res.render('upload', {
-        inputFormat: process.env.INPUT_FORMAT?.toLowerCase() || 'json'
+        inputFormat: process.env.INPUT_FORMAT?.toLowerCase() || 'csv'
     });
 });
 
 app.get('/settings', (req, res) => {
     res.render('settings', {
-        inputFormat: process.env.INPUT_FORMAT?.toLowerCase() || 'json'
+        inputFormat: process.env.INPUT_FORMAT?.toLowerCase() || 'csv'
     });
 });
 

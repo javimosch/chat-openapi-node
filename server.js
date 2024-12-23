@@ -38,7 +38,7 @@ const upload = multer({ storage: storage });
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(expressLayouts);
-app.set('layout extractScripts', true);
+app.set('layout extractScripts', false);
 app.set('layout extractStyles', true);
 app.set('layout', './layout');
 app.use(express.static('public'));
@@ -68,6 +68,15 @@ app.get('/settings', (req, res) => {
     res.render('settings', {
         inputFormat: process.env.INPUT_FORMAT?.toLowerCase() || 'csv'
     });
+
+});
+
+// Initialize Pinecone
+let pineconeIndex;
+initPinecone().then(index => {
+    pineconeIndex = index;
+}).catch(error => {
+    logger.error('Failed to initialize Pinecone', 'init', { error });
 });
 
 app.post('/upload', upload.single('file'), async (req, res) => {

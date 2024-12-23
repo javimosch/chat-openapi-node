@@ -53,10 +53,6 @@ if (process.env.BASIC_AUTH_USER && process.env.BASIC_AUTH_PASSWORD) {
     }));
 }
 
-// Add health routes
-const healthRoutes = require('./routes/health');
-app.use('/api', healthRoutes);
-
 // Routes
 app.get('/', (req, res) => {
     res.render('index');

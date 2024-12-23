@@ -584,57 +584,58 @@ async function processChunkBatch(batch, fileName, startIndex) {
     }
 }
 
-// Query similar chunks
 async function querySimilarChunks(query) {
     logger.info('Querying similar chunks', 'querySimilarChunks', { query });
 
     try {
         // Generate query embedding
-        const [queryEmbedding] = await embeddings.embedQuery(query);
+        const queryEmbedding = await embeddings.embedQuery(query);
+        if (!queryEmbedding || !Array.isArray(queryEmbedding)) {
+            logger.error('Invalid query embedding', 'querySimilarChunks', {
+                embedding: queryEmbedding
+            });
+            return [];
+        }
 
         // Query Pinecone
         const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
         
-        // Query without filter first
+        // Query for non-metadata vectors only
         const results = await index.query({
             vector: queryEmbedding,
             topK: 10,
             includeMetadata: true,
-            includeValues: false
+            includeValues: false,
+            filter: { is_metadata: { $ne: true } } // Exclude metadata vectors
+        });
+
+        // Log query details for debugging
+        logger.debug('Query details', 'querySimilarChunks', {
+            vectorLength: queryEmbedding.length,
+            vectorSample: queryEmbedding.slice(0, 5),
+            matchCount: results.matches?.length || 0,
+            filter: { is_metadata: { $ne: true } }
         });
 
         // Log full results for debugging
         logger.info('Raw query results', 'querySimilarChunks', {
             matches: results.matches?.map(m => ({
                 score: m.score,
-                metadata: m.metadata,
+                metadata: {
+                    ...m.metadata,
+                    text: m.metadata?.text?.substring(0, 100) + '...' // Truncate text for logging
+                },
                 id: m.id
             }))
         });
 
-        // Log potential auth-related matches
-        const authMatches = results.matches?.filter(m => {
-            const meta = m.metadata || {};
-            const text = meta.text || meta.content || '';
-            const path = meta.path || '';
-            return text.toLowerCase().includes('auth') || 
-                   path.toLowerCase().includes('auth') ||
-                   (meta.component_type === 'securitySchemes');
-        });
-
-        if (authMatches?.length) {
-            logger.info('Found auth-related matches', 'querySimilarChunks', {
-                authMatches: authMatches.map(m => ({
-                    score: m.score,
-                    metadata: m.metadata,
-                    id: m.id
-                }))
-            });
-        }
-
         return results.matches || [];
     } catch (error) {
-        logger.error('Failed to query similar chunks', 'querySimilarChunks', { error });
+        logger.error('Failed to query similar chunks', 'querySimilarChunks', {
+            error: error.message,
+            stack: error.stack,
+            query
+        });
         return [];
     }
 }

@@ -14,12 +14,14 @@
     "files": "node scripts/print-files.js",
     "print-files": "node scripts/print-files.js",
     "db:clean": "node scripts/db-clean.js",
+    "db:health": "node scripts/db-health.js",
     "file:remove": "node scripts/remove-file.js"
   },
   "dependencies": {
     "@langchain/openai": "^0.0.14",
     "@pinecone-database/pinecone": "^4.0.0",
     "chalk": "^4.1.2",
+    "cors": "^2.8.5",
     "csv-parse": "^4.16.3",
     "csv-stringify": "^6.2.0",
     "dotenv": "^16.3.1",
@@ -29,6 +31,7 @@
     "express-ejs-layouts": "^2.5.1",
     "js-yaml": "^4.1.0",
     "mongoose": "^8.0.3",
+    "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
     "uuid": "^9.0.1",

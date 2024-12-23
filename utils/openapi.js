@@ -4,13 +4,13 @@ const { Pinecone } = require('@pinecone-database/pinecone');
 const { OpenAIEmbeddings } = require('@langchain/openai');
 const { createModuleLogger } = require('./logger');
 const { OpenAPIChunker, OpenAPICSVProcessor } = require('./chunking');
-const { shouldUseMongoForEmbeddings, isDbSystemEnabled, db, mongoose } = require('../db/config');
+const { isDbSystemEnabled, db, mongoose } = require('../db/config');
 const yaml = require('js-yaml');
 const fetch = require('node-fetch');
 const Metadata = require('../models/metadata');
 const fs = require('fs').promises;
 const path = require('path');
-
+let pinecone = null
 const logger = createModuleLogger('openapi');
 
 // Initialize OpenAI embeddings
@@ -21,7 +21,7 @@ const embeddings = new OpenAIEmbeddings({
 
 // Wrap embedQuery for logging
 const originalEmbedQuery = embeddings.embedQuery;
-embeddings.embedQuery = async function(...args) {
+embeddings.embedQuery = async function (...args) {
     logger.info('Calling OpenAI API for embeddings', 'embedQuery', {
         textLength: args[0]?.length,
         preview: args[0]?.substring(0, 100)
@@ -46,7 +46,7 @@ embeddings.embedQuery = async function(...args) {
 
 // Wrap embedDocuments for logging
 const originalEmbedDocuments = embeddings.embedDocuments;
-embeddings.embedDocuments = async function(...args) {
+embeddings.embedDocuments = async function (...args) {
     logger.info('Calling OpenAI API for batch embeddings', 'embedDocuments', {
         chunks: args[0]?.length,
         sampleText: args[0]?.[0]?.substring(0, 100)
@@ -99,9 +99,25 @@ function extractResponseCodes(responses) {
 }
 
 // Initialize Pinecone client
-const pinecone = new Pinecone({
-    apiKey: process.env.PINECONE_API_KEY,
-});
+async function initPinecone() {
+    logger.info('Initializing Pinecone client', 'initPinecone', {
+        index: process.env.PINECONE_INDEX
+    });
+
+    try {
+        pinecone = new Pinecone({
+            apiKey: process.env.PINECONE_API_KEY,
+        });
+
+        return pinecone.index(process.env.PINECONE_INDEX);
+    } catch (error) {
+        logger.error('Failed to initialize Pinecone', 'initPinecone', {
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
 
 // Wrap Pinecone index operations with logging
 const wrapPineconeIndex = (index) => {
@@ -147,37 +163,6 @@ function resetProcessingStatus() {
         totalChunks: 0
     };
     logger.debug('Reset processing status', 'resetProcessingStatus');
-}
-
-// Initialize Pinecone client and load existing files
-async function initPinecone() {
-    logger.info('Initializing Pinecone client', 'initPinecone', {
-        indexName: process.env.PINECONE_INDEX
-    });
-
-    try {
-        const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
-        
-        // Get index stats
-        const stats = await index.describeIndexStats();
-        logger.info('Pinecone index stats', 'initPinecone', {
-            indexName: process.env.PINECONE_INDEX,
-            totalVectorCount: stats.totalVectorCount,
-            dimensions: stats.dimension,
-            namespaces: Object.keys(stats.namespaces || {})
-        });
-
-        // Load existing embeddings
-        await loadExistingEmbeddings(index);
-
-        return index;
-    } catch (error) {
-        logger.error('Failed to initialize Pinecone', 'initPinecone', {
-            error: error.message,
-            stack: error.stack
-        });
-        throw error;
-    }
 }
 
 // Load existing embeddings from Pinecone
@@ -261,7 +246,9 @@ async function loadExistingEmbeddings(index) {
 
 // Process OpenAPI specification in background
 async function processOpenAPISpec(specContent, fileName) {
-    logger.info('Starting OpenAPI processing', 'processOpenAPISpec', { fileName });
+    logger.info('Starting OpenAPI processing', 'processOpenAPISpec', {
+        fileName
+    });
 
     // Reset processing status
     processingStatus = {
@@ -335,10 +322,12 @@ async function processInBackground(specContent, fileName) {
         });
 
         if (isCSV) {
-            logger.info('Processing CSV file', 'processInBackground', { fileName });
+            logger.info('Processing CSV file', 'processInBackground', {
+                fileName
+            });
             const csvProcessor = new OpenAPICSVProcessor();
             const fileContent = specContent.toString();
-            
+
             // Parse and process CSV
             const records = await csvProcessor.parseCSV(fileContent);
             logger.info('Parsed CSV records', 'processInBackground', {
@@ -357,7 +346,7 @@ async function processInBackground(specContent, fileName) {
                     errorCount: processingErrors.length,
                     fileName: fileName
                 });
-                
+
                 await logImportErrors(
                     fileName,
                     fileName,
@@ -411,7 +400,10 @@ async function processInBackground(specContent, fileName) {
         });
 
     } catch (error) {
-        logger.error('Failed to process file', 'processInBackground', { error });
+        logger.error('Failed to process file', 'processInBackground', {
+            error: error.message,
+            stack: error.stack
+        });
         processingStatus.error = error.message;
         throw error;
     } finally {
@@ -454,9 +446,7 @@ async function logImportErrors(originalFilename, computedFilename, errors) {
 async function processChunkBatch(batch, fileName, startIndex) {
     logger.info('Processing chunk batch', 'processChunkBatch', {
         batchSize: batch.length,
-        startIndex,
-        fileName,
-        sampleText: batch[0]?.text?.substring(0, 100)
+        startIndex
     });
 
     try {
@@ -541,7 +531,7 @@ async function processChunkBatch(batch, fileName, startIndex) {
 
         try {
             const upsertResult = await index.upsert([...vectors, metadataVector]);
-            
+
             // Log successful upsert
             logger.info('Upserted vectors to Pinecone', 'processChunkBatch', {
                 upsertedCount: upsertResult?.upsertedCount,
@@ -585,7 +575,9 @@ async function processChunkBatch(batch, fileName, startIndex) {
 }
 
 async function querySimilarChunks(query) {
-    logger.info('Querying similar chunks', 'querySimilarChunks', { query });
+    logger.info('Querying similar chunks', 'querySimilarChunks', {
+        query
+    });
 
     try {
         // Generate query embedding
@@ -597,9 +589,9 @@ async function querySimilarChunks(query) {
             return [];
         }
 
-        // Query Pinecone
+        // Query Pinecone using dynamic index
         const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
-        
+
         // Query for non-metadata vectors only
         const results = await index.query({
             vector: queryEmbedding,
@@ -642,11 +634,13 @@ async function querySimilarChunks(query) {
 
 // Generate chat response
 async function generateChatResponse(query) {
-    logger.info('Generating chat response', 'generateChatResponse', { query });
+    logger.info('Generating chat response', 'generateChatResponse', {
+        query
+    });
 
     // Get similar chunks
     const similarChunks = await querySimilarChunks(query);
-    
+
     logger.info('Processing similar chunks', 'generateChatResponse', {
         chunkCount: similarChunks.length,
         hasMongoRefs: similarChunks.some(chunk => chunk.metadata?.mongo_ref)
@@ -716,42 +710,42 @@ async function generateChatResponse(query) {
     // Format context for chat
     const contextText = context.map(chunk => {
         const lines = [];
-        
+
         // Add endpoint info
         lines.push(`## ${chunk.method} ${chunk.endpoint}`);
         if (chunk.summary) lines.push(`Summary: ${chunk.summary}`);
         if (chunk.description) lines.push(`Description: ${chunk.description}`);
-        
+
         // Add parameters if present
         if (chunk.parameters) {
             lines.push('### Parameters');
             lines.push(chunk.parameters);
         }
-        
+
         // Add request body if present
         if (chunk.requestBody) {
             lines.push('### Request Body');
             lines.push(chunk.requestBody);
         }
-        
+
         // Add responses if present
         if (chunk.responses) {
             lines.push('### Responses');
             lines.push(chunk.responses);
         }
-        
+
         // Add security if present
         if (chunk.security) {
             lines.push('### Security');
             lines.push(chunk.security);
         }
-        
+
         // Add servers if present
         if (chunk.servers) {
             lines.push('### Servers');
             lines.push(chunk.servers);
         }
-        
+
         // Add schemas if present
         if (chunk.schemas) {
             lines.push('### Schemas');
@@ -760,7 +754,7 @@ async function generateChatResponse(query) {
 
         // Add relevance score
         lines.push(`\nRelevance Score: ${chunk.score.toFixed(3)}`);
-        
+
         return lines.join('\n\n');
     }).join('\n\n---\n\n');  // Add separator between endpoints
 
@@ -842,7 +836,10 @@ async function generateChatResponse(query) {
         return data.choices[0]?.message?.content || 'No response generated';
 
     } catch (error) {
-        logger.error('Failed to generate chat response', 'generateChatResponse', { error });
+        logger.error('Failed to generate chat response', 'generateChatResponse', {
+            error: error.message,
+            stack: error.stack
+        });
         return 'I encountered an error while generating the response. Please try again or check if the OpenAPI specification is properly loaded.';
     }
 }
@@ -911,7 +908,9 @@ function getProcessingStatus() {
 
 // Search OpenAPI specification
 async function searchOpenAPISpec(query, options = {}) {
-    logger.info('Searching OpenAPI specification', 'searchOpenAPISpec', { query });
+    logger.info('Searching OpenAPI specification', 'searchOpenAPISpec', {
+        query
+    });
 
     try {
         const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));

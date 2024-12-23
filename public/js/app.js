@@ -330,4 +330,5 @@ if (document.getElementById('settings')) {
             this.connectWebSocket()
         }
     }).mount('#settings')
+
 }

@@ -3,10 +3,11 @@ require('dotenv').config();
 const { Pinecone } = require('@pinecone-database/pinecone');
 const { OpenAIEmbeddings } = require('@langchain/openai');
 const { createModuleLogger } = require('./logger');
-const { OpenAPIChunker } = require('./chunking');
-const { shouldUseMongoForEmbeddings, isDbSystemEnabled, db } = require('../db/config');
+const { OpenAPIChunker, OpenAPICSVProcessor } = require('./chunking');
+const { shouldUseMongoForEmbeddings, isDbSystemEnabled, db, mongoose } = require('../db/config');
 const yaml = require('js-yaml');
 const fetch = require('node-fetch');
+const Metadata = require('../models/metadata');
 
 const logger = createModuleLogger('openapi');
 
@@ -15,6 +16,31 @@ const embeddings = new OpenAIEmbeddings({
     openAIApiKey: process.env.OPENAI_API_KEY,
     modelName: 'text-embedding-ada-002'
 });
+
+// Wrap embedding methods with logging
+const originalEmbedQuery = embeddings.embedQuery;
+embeddings.embedQuery = async function (text) {
+    logger.info('Generating embedding for text', 'embedQuery', {
+        textLength: text.length,
+        preview: text.substring(0, 100) + (text.length > 100 ? '...' : '')
+    });
+
+    try {
+        const vector = await originalEmbedQuery.call(this, text);
+        logger.debug('Generated embedding', 'embedQuery', {
+            dimensions: vector.length,
+            hasNonZero: vector.some(v => v !== 0),
+            firstValues: vector.slice(0, 5)
+        });
+        return vector;
+    } catch (error) {
+        logger.error('Failed to generate embedding', 'embedQuery', {
+            error: error.message,
+            textLength: text.length
+        });
+        throw error;
+    }
+};
 
 const originalEmbedDocuments = embeddings.embedDocuments;
 embeddings.embedDocuments = async function (...args) {
@@ -162,13 +188,9 @@ async function loadExistingEmbeddings(index) {
 
 // Process OpenAPI specification in background
 async function processOpenAPISpec(specContent, fileName) {
-    if (processingStatus.isProcessing) {
-        return {
-            status: 'already_processing',
-            message: 'Another specification is currently being processed'
-        };
-    }
+    logger.info('Starting OpenAPI processing', 'processOpenAPISpec', { fileName });
 
+    // Reset processing status
     processingStatus = {
         isProcessing: true,
         progress: 0,
@@ -178,6 +200,21 @@ async function processOpenAPISpec(specContent, fileName) {
         currentFile: fileName,
         embeddedFiles: processingStatus.embeddedFiles
     };
+
+    // Add file to embedded files list
+    const fileEntry = {
+        fileName,
+        status: 'processing',
+        error: null,
+        timestamp: new Date().toISOString()
+    };
+
+    const existingIndex = processingStatus.embeddedFiles.findIndex(f => f.fileName === fileName);
+    if (existingIndex >= 0) {
+        processingStatus.embeddedFiles[existingIndex] = fileEntry;
+    } else {
+        processingStatus.embeddedFiles.push(fileEntry);
+    }
 
     // Start background processing
     processInBackground(specContent, fileName).catch(error => {
@@ -207,39 +244,66 @@ async function processOpenAPISpec(specContent, fileName) {
 
 // Background processing function
 async function processInBackground(specContent, fileName) {
-    logger.info('Processing OpenAPI specification', 'processInBackground', { fileName });
+    logger.info('Processing file', 'processInBackground', { fileName });
 
     try {
-        // Parse the specification
-        const spec = typeof specContent === 'string'
-            ? yaml.load(specContent)
-            : specContent;
+        let chunks;
+        const fileType = process.env.INPUT_FORMAT?.toLowerCase() || 'json';
+        const isCSV = fileName.toLowerCase().endsWith('.csv') || fileType === 'csv';
 
-        logger.debug('Parsed OpenAPI specification', 'processInBackground', {
+        logger.debug('Processing file', 'processInBackground', {
             fileName,
-            version: spec.openapi || spec.swagger,
-            title: spec.info?.title
+            fileType,
+            isCSV,
+            contentLength: typeof specContent === 'string' ? specContent.length : 'binary'
         });
 
-        // Create chunks
-        const chunker = new OpenAPIChunker(spec);
-        const chunks = await chunker.processSpecification();
+        if (isCSV) {
+            // Process CSV file
+            const csvProcessor = new OpenAPICSVProcessor();
+            try {
+                const records = await csvProcessor.parseCSV(specContent);
+                chunks = await csvProcessor.generateChunks(records);
+                logger.debug('Parsed CSV file', 'processInBackground', {
+                    fileName,
+                    recordCount: records.length,
+                    chunkCount: chunks.length
+                });
+            } catch (csvError) {
+                logger.error('CSV processing error', 'processInBackground', {
+                    error: csvError.message,
+                    fileName
+                });
+                throw new Error(`Failed to process CSV file: ${csvError.message}`);
+            }
+        } else {
+            // Process JSON/YAML file
+            let jsonSpec;
+            try {
+                if (typeof specContent === 'string') {
+                    if (fileName.toLowerCase().endsWith('.yaml') || fileName.toLowerCase().endsWith('.yml')) {
+                        jsonSpec = yaml.load(specContent);
+                    } else {
+                        jsonSpec = JSON.parse(specContent);
+                    }
+                } else {
+                    jsonSpec = specContent;
+                }
+
+                const chunker = new OpenAPIChunker(jsonSpec);
+                chunks = await chunker.processSpecification();
+            } catch (parseError) {
+                throw new Error(`Failed to parse file: ${parseError.message}`);
+            }
+        }
+
         processingStatus.progress = 30;
         processingStatus.totalChunks = chunks.length;
 
-        // Add file metadata to embedded files list
-        const fileMetadata = {
-            fileName,
-            totalChunks: chunks.length,
-            timestamp: new Date().toISOString(),
-            status: 'processing'
-        };
-
-        const existingFileIndex = processingStatus.embeddedFiles.findIndex(f => f.fileName === fileName);
-        if (existingFileIndex >= 0) {
-            processingStatus.embeddedFiles[existingFileIndex] = fileMetadata;
-        } else {
-            processingStatus.embeddedFiles.push(fileMetadata);
+        // Update embedded files list with chunk count
+        const fileIndex = processingStatus.embeddedFiles.findIndex(f => f.fileName === fileName);
+        if (fileIndex >= 0) {
+            processingStatus.embeddedFiles[fileIndex].totalChunks = chunks.length;
         }
 
         logger.info('Created chunks from specification', 'processInBackground', {
@@ -247,23 +311,53 @@ async function processInBackground(specContent, fileName) {
             chunkCount: chunks.length
         });
 
+        // Store file metadata vector
+        logger.info('Storing file metadata vector', 'processInBackground', {
+            fileName,
+            totalChunks: chunks.length
+        });
+
+        const fileMetadataVector = {
+            id: `file:${fileName}`,
+            values: await embeddings.embedQuery(`File: ${fileName}`),
+            metadata: {
+                fileName,
+                totalChunks: chunks.length,
+                timestamp: new Date().toISOString(),
+                isFileMetadata: true
+            }
+        };
+
+        logger.debug('Generated file metadata vector', 'processInBackground', {
+            fileName,
+            vectorId: fileMetadataVector.id,
+            vectorDimensions: fileMetadataVector.values.length,
+            hasNonZero: fileMetadataVector.values.some(v => v !== 0)
+        });
+
+        const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
+        await index.upsert([fileMetadataVector]);
 
         // Process chunks in batches
-        if (shouldUseMongoForEmbeddings()) {
-            await processChunksWithMongoDB(chunks, fileName);
-        } else {
+        logger.info('Starting chunk processing', 'processInBackground', {
+            fileName,
+            totalChunks: chunks.length
+        });
 
-            // Store file metadata in Pinecone
-            const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
-            await index.upsert([{
-                id: `file:${fileName}`,
-                values: Array(1536).fill(0), // Default dimension for ada-002
-                metadata: {
-                    ...fileMetadata,
-                    isFileMetadata: true
-                }
-            }]);
-            await storeEmbeddingsInBatches(chunks, fileName);
+        const batchSize = 100;
+        for (let i = 0; i < chunks.length; i += batchSize) {
+            const batch = chunks.slice(i, i + batchSize);
+            const vectors = await processChunkBatch(batch, fileName, i);
+            await index.upsert(vectors);
+            processingStatus.processedChunks += batch.length;
+            processingStatus.progress = Math.round((processingStatus.processedChunks / chunks.length) * 100);
+
+            logger.info('Processed chunk batch', 'processInBackground', {
+                fileName,
+                batchStart: i,
+                batchSize: batch.length,
+                progress: processingStatus.progress
+            });
         }
 
         // Update file status to completed
@@ -275,7 +369,6 @@ async function processInBackground(specContent, fileName) {
         return {
             success: true,
             chunks: chunks.length,
-            specId: chunker.specId,
             fileName
         };
     } catch (error) {
@@ -288,94 +381,87 @@ async function processInBackground(specContent, fileName) {
     }
 }
 
-// Store embeddings in Pinecone with batching
-async function storeEmbeddingsInBatches(chunks, fileName) {
-    logger.info('Storing embeddings', 'storeEmbeddingsInBatches', {
+async function processChunkBatch(batch, fileName, startIndex) {
+    logger.info('Processing chunk batch', 'processChunkBatch', {
+        batchSize: batch.length,
         fileName,
-        chunkCount: chunks.length
+        startIndex
     });
 
-    try {
-        const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
-        const batchSize = 100;
-        const totalBatches = Math.ceil(chunks.length / batchSize);
+    const vectors = await Promise.all(
+        batch.map(async (chunk, index) => {
+            const chunkIndex = startIndex + index;
+            const vectorId = `${fileName}:${chunkIndex}`;
 
-        for (let i = 0; i < chunks.length; i += batchSize) {
-            const batch = chunks.slice(i, i + batchSize);
-            const batchNumber = Math.floor(i / batchSize) + 1;
+            try {
+                // Log metadata before saving
+                logger.debug('Saving metadata to MongoDB', 'processChunkBatch', {
+                    vectorId,
+                    endpoint: chunk.metadata.endpoint,
+                    method: chunk.metadata.method
+                });
 
-            // Generate embeddings for current batch
-            const vectors = await Promise.all(
-                batch.map(async (chunk) => {
-                    const [embedding] = await embeddings.embedDocuments([chunk.text]);
-                    return {
-                        id: chunk.metadata.chunk_id,
-                        values: embedding,
-                        metadata: {
-                            ...chunk.metadata,
-                            fileName
-                        }
-                    };
-                })
-            );
+                // Store full metadata in MongoDB
+                const metadataDoc = new Metadata({
+                    vector_id: vectorId,
+                    file_name: fileName,
+                    chunk_index: chunkIndex,
+                    // Essential metadata (duplicated in Pinecone)
+                    endpoint: chunk.metadata.endpoint,
+                    method: chunk.metadata.method,
+                    summary: chunk.metadata.summary,
+                    tags: Array.isArray(chunk.metadata.tags) ? chunk.metadata.tags : [],
+                    // Detailed metadata (only in MongoDB)
+                    parameters: chunk.metadata.parameters,
+                    requestBody: chunk.metadata.requestBody,
+                    responses: chunk.metadata.responses,
+                    security: chunk.metadata.security,
+                    servers: chunk.metadata.servers,
+                    schemas: chunk.metadata.schemas,
+                    // Additional fields
+                    description: chunk.metadata.description,
+                    text: chunk.text
+                });
 
-            // Store batch in Pinecone
-            await index.upsert(vectors);
+                const savedDoc = await metadataDoc.save();
+                
+                logger.info('Saved metadata to MongoDB', 'processChunkBatch', {
+                    vectorId,
+                    mongoId: savedDoc._id.toString()
+                });
 
-            // Update progress and processed chunks count
-            processingStatus.processedChunks += batch.length;
-            processingStatus.progress = 30 + Math.floor((processingStatus.processedChunks / processingStatus.totalChunks) * 70);
+                // Create vector with minimal metadata for Pinecone
+                const vector = {
+                    id: vectorId,
+                    values: await embeddings.embedQuery(chunk.text),
+                    metadata: {
+                        endpoint: chunk.metadata.endpoint,
+                        method: chunk.metadata.method,
+                        summary: chunk.metadata.summary,
+                        tags: Array.isArray(chunk.metadata.tags) ? chunk.metadata.tags : [],
+                        mongo_ref: savedDoc._id.toString()
+                    }
+                };
 
-            logger.info('Batch processed', 'storeEmbeddingsInBatches', {
-                fileName,
-                batch: batchNumber,
-                totalBatches,
-                processedChunks: processingStatus.processedChunks,
-                totalChunks: processingStatus.totalChunks,
-                progress: processingStatus.progress
-            });
-        }
-    } catch (error) {
-        const errorMessage = error.message || 'Unknown error occurred';
-        logger.error('Failed to store embeddings', 'storeEmbeddingsInBatches', {
-            error: errorMessage,
-            stack: error.stack,
-            fileName
-        });
-        throw new Error('Failed to store embeddings: ' + errorMessage);
-    }
-}
+                return vector;
+            } catch (error) {
+                logger.error('Failed to save metadata', 'processChunkBatch', {
+                    error: error.message,
+                    stack: error.stack,
+                    vectorId,
+                    endpoint: chunk.metadata.endpoint
+                });
+                throw error;
+            }
+        })
+    );
 
-// Process chunks with MongoDB
-async function processChunksWithMongoDB(chunks, fileName) {
-    logger.info('Processing chunks with MongoDB', 'processChunksWithMongoDB', {
-        fileName,
-        chunkCount: chunks.length
+    logger.info('Processed chunk batch', 'processChunkBatch', {
+        batchSize: batch.length,
+        vectorCount: vectors.length
     });
 
-    try {
-        // Store chunks in MongoDB
-        await db.createChunks(chunks, fileName);
-
-        // Update progress and processed chunks count
-        processingStatus.processedChunks += chunks.length;
-        processingStatus.progress = 30 + Math.floor((processingStatus.processedChunks / processingStatus.totalChunks) * 70);
-
-        logger.info('Chunks processed with MongoDB', 'processChunksWithMongoDB', {
-            fileName,
-            processedChunks: processingStatus.processedChunks,
-            totalChunks: processingStatus.totalChunks,
-            progress: processingStatus.progress
-        });
-    } catch (error) {
-        const errorMessage = error.message || 'Unknown error occurred';
-        logger.error('Failed to process chunks with MongoDB', 'processChunksWithMongoDB', {
-            error: errorMessage,
-            stack: error.stack,
-            fileName
-        });
-        throw new Error('Failed to process chunks with MongoDB: ' + errorMessage);
-    }
+    return vectors;
 }
 
 // Query similar chunks
@@ -439,36 +525,131 @@ async function generateChatResponse(query) {
 
     // Get similar chunks
     const similarChunks = await querySimilarChunks(query);
+    
+    logger.info('Processing similar chunks', 'generateChatResponse', {
+        chunkCount: similarChunks.length,
+        hasMongoRefs: similarChunks.some(chunk => chunk.metadata?.mongo_ref)
+    });
 
     // Extract text from chunks
-    const context = similarChunks.map(chunk => {
+    const context = await Promise.all(similarChunks.map(async (chunk, index) => {
         const metadata = chunk.metadata || {};
-        const text = metadata.text || metadata.content || '';
-        const type = metadata.component_type || metadata.type || 'info';
-        const path = metadata.path || '';
-        const method = metadata.method || '';
-        const score = chunk.score || 0;
+        let mongoMetadata;
 
-        // If no text content, generate a description from the metadata
-        const description = text || generateDescription(metadata);
-        
+        // Try to fetch full metadata from MongoDB if we have a reference
+        if (metadata.mongo_ref) {
+            try {
+                mongoMetadata = await Metadata.findById(metadata.mongo_ref);
+
+                logger.debug('Fetched MongoDB metadata by ID', 'generateChatResponse', {
+                    index,
+                    mongo_ref: metadata.mongo_ref,
+                    found: !!mongoMetadata
+                });
+            } catch (error) {
+                logger.error('Failed to fetch MongoDB metadata by ID', 'generateChatResponse', {
+                    error: error.message,
+                    mongo_ref: metadata.mongo_ref
+                });
+            }
+        }
+
+        // If no metadata found by ID, try finding by endpoint and method
+        if (!mongoMetadata && metadata.endpoint && metadata.method) {
+            try {
+                mongoMetadata = await Metadata.findOne({
+                    endpoint: metadata.endpoint,
+                    method: metadata.method
+                });
+                logger.debug('Fetched MongoDB metadata by endpoint/method', 'generateChatResponse', {
+                    index,
+                    endpoint: metadata.endpoint,
+                    method: metadata.method,
+                    found: !!mongoMetadata
+                });
+            } catch (error) {
+                logger.error('Failed to fetch MongoDB metadata by endpoint/method', 'generateChatResponse', {
+                    error: error.message,
+                    endpoint: metadata.endpoint,
+                    method: metadata.method
+                });
+            }
+        }
+
+        // Use MongoDB metadata if found, otherwise use Pinecone metadata
+        const finalMetadata = mongoMetadata?._doc || metadata;
+
+        logger.debug('Final metadata for chunk', 'generateChatResponse', {
+            index,
+            hasMongoData: !!mongoMetadata,
+            score: chunk.score,
+            metadata: finalMetadata
+        });
+
         return {
-            text: description,
-            type,
-            path,
-            method,
-            score
+            ...finalMetadata,
+            score: chunk.score || 0
         };
-    }).filter(chunk => chunk.text);
+    }));
+
+    // Format context for chat
+    const contextText = context.map(chunk => {
+        const lines = [];
+        
+        // Add endpoint info
+        lines.push(`## ${chunk.method} ${chunk.endpoint}`);
+        if (chunk.summary) lines.push(`Summary: ${chunk.summary}`);
+        if (chunk.description) lines.push(`Description: ${chunk.description}`);
+        
+        // Add parameters if present
+        if (chunk.parameters) {
+            lines.push('### Parameters');
+            lines.push(chunk.parameters);
+        }
+        
+        // Add request body if present
+        if (chunk.requestBody) {
+            lines.push('### Request Body');
+            lines.push(chunk.requestBody);
+        }
+        
+        // Add responses if present
+        if (chunk.responses) {
+            lines.push('### Responses');
+            lines.push(chunk.responses);
+        }
+        
+        // Add security if present
+        if (chunk.security) {
+            lines.push('### Security');
+            lines.push(chunk.security);
+        }
+        
+        // Add servers if present
+        if (chunk.servers) {
+            lines.push('### Servers');
+            lines.push(chunk.servers);
+        }
+        
+        // Add schemas if present
+        if (chunk.schemas) {
+            lines.push('### Schemas');
+            lines.push(chunk.schemas);
+        }
+
+        // Add relevance score
+        lines.push(`\nRelevance Score: ${chunk.score.toFixed(3)}`);
+        
+        return lines.join('\n\n');
+    }).join('\n\n---\n\n');  // Add separator between endpoints
 
     // Log extracted context
     logger.info('Extracted context', 'generateChatResponse', {
-        contextItems: context.map(c => ({
-            type: c.type,
-            path: c.path,
-            method: c.method,
-            score: c.score,
-            textPreview: c.text.substring(0, 100) + '...'
+        contextItems: context.map(item => ({
+            endpoint: item.endpoint,
+            method: item.method,
+            score: item.score,
+            summary: item.summary
         }))
     });
 
@@ -477,14 +658,6 @@ async function generateChatResponse(query) {
         logger.info('No context found, returning guidance', 'generateChatResponse');
         return "I don't see any OpenAPI specification loaded yet. Please upload an OpenAPI specification file first, and then I can help you understand its endpoints and features.";
     }
-
-    // Format context for chat
-    const contextText = context.map(chunk => {
-        let header = `[${chunk.type.toUpperCase()}]`;
-        if (chunk.path) header += ` ${chunk.method || ''} ${chunk.path}`;
-        if (chunk.score) header += ` (relevance: ${chunk.score.toFixed(2)})`;
-        return `${header}\n${chunk.text}`;
-    }).join('\n\n');
 
     // Generate response
     const messages = [
@@ -505,16 +678,16 @@ async function generateChatResponse(query) {
                      6. Use tables for comparing multiple endpoints or parameters
                      
                      When describing authentication endpoints:
-                     1. Always mention the HTTP method
-                     2. List any required headers
-                     3. Describe the expected request body if POST/PUT
-                     4. Explain the response format
+                     1. Always mention the HTTP method and full endpoint path
+                     2. List any required headers from the security schemes
+                     3. Describe the expected request body format
+                     4. Explain the response format and possible status codes
                      5. Note any required scopes or permissions
+                     6. Provide example curl commands when possible
                      
-                     Below is the relevant context from the specification.
+                     Below is the relevant context from the OpenAPI specification.
+                     Each section is separated by "---" and contains complete endpoint information.
                      Use this context to answer the user's question precisely and technically.
-                     If you find authentication-related information, be sure to explain the required credentials and how to use them.
-                     If you cannot find relevant information in the context, say so.
                      
                      Context:
                      ${contextText}`
@@ -615,10 +788,78 @@ function getProcessingStatus() {
     };
 }
 
+// Search OpenAPI specification
+async function searchOpenAPISpec(query, options = {}) {
+    logger.info('Searching OpenAPI specification', 'searchOpenAPISpec', { query });
+
+    try {
+        const index = wrapPineconeIndex(pinecone.index(process.env.PINECONE_INDEX));
+        const queryEmbedding = await embeddings.embedQuery(query);
+
+        const searchResponse = await index.query({
+            vector: queryEmbedding,
+            topK: options.topK || 5,
+            includeMetadata: true
+        });
+
+        // Fetch full metadata from MongoDB for matches
+        const results = await Promise.all(
+            searchResponse.matches.map(async match => {
+                try {
+                    const fullMetadata = await Metadata.findById(match.metadata.mongo_ref);
+
+                    if (!fullMetadata) {
+                        logger.warn('MongoDB metadata not found for vector', 'searchOpenAPISpec', {
+                            vectorId: match.id
+                        });
+                        return match;
+                    }
+
+                    return {
+                        ...match,
+                        metadata: {
+                            ...match.metadata,
+                            parameters: fullMetadata.parameters,
+                            requestBody: fullMetadata.requestBody,
+                            responses: fullMetadata.responses,
+                            security: fullMetadata.security,
+                            servers: fullMetadata.servers,
+                            schemas: fullMetadata.schemas,
+                            description: fullMetadata.description,
+                            text: fullMetadata.text
+                        }
+                    };
+                } catch (error) {
+                    logger.error('Failed to fetch MongoDB metadata', 'searchOpenAPISpec', {
+                        error: error.message,
+                        vectorId: match.id
+                    });
+                    return match;
+                }
+            })
+        );
+
+        logger.info('Search completed', 'searchOpenAPISpec', {
+            query,
+            resultCount: results.length,
+            topScore: results[0]?.score
+        });
+
+        return results;
+    } catch (error) {
+        logger.error('Search failed', 'searchOpenAPISpec', {
+            error: error.message,
+            query
+        });
+        throw error;
+    }
+}
+
 module.exports = {
     initPinecone,
     processOpenAPISpec,
     querySimilarChunks,
     generateChatResponse,
-    getProcessingStatus
+    getProcessingStatus,
+    searchOpenAPISpec
 }

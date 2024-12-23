@@ -10,7 +10,7 @@
                         type="file" 
                         ref="fileInput"
                         @change="handleFileChange"
-                        accept=".json,application/json"
+                        :accept="inputFormat === 'csv' ? '.csv,text/csv' : '.json,application/json'"
                         class="hidden"
                         :disabled="isUploading"
                     >
@@ -20,12 +20,26 @@
                             Click to select or drag and drop
                         </div>
                         <div class="text-sm text-gray-400">
-                            Supports JSON files only
+                            Currently accepting {{ inputFormat.toUpperCase() }} files only
                         </div>
                     </div>
                     <div v-else class="text-gray-700">
                         Selected: {{ selectedFile.name }}
                     </div>
+                </div>
+
+                <!-- Upload Only Checkbox -->
+                <div class="flex items-center mt-4">
+                    <input 
+                        type="checkbox" 
+                        id="uploadOnly" 
+                        v-model="uploadOnly"
+                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        :disabled="isUploading"
+                    >
+                    <label for="uploadOnly" class="ml-2 block text-sm text-gray-900">
+                        Upload Only (Skip Processing)
+                    </label>
                 </div>
 
                 <div class="flex justify-end space-x-4">
@@ -53,9 +67,111 @@
 
             <!-- Status Message -->
             <div v-if="status" :class="['mt-4 p-4 rounded-lg', 
-                status.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700']">
-                {{ status.message }}
+                status.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700']">
+                {{ status }}
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Upload Application
+if (document.getElementById('upload')) {
+    const { createApp, ref } = Vue
+
+    createApp({
+        data() {
+            return {
+                selectedFile: null,
+                isUploading: false,
+                status: null,
+                inputFormat: '<%= inputFormat %>',
+                uploadOnly: false,
+                ws: null
+            }
+        },
+
+        methods: {
+            handleFileChange(event) {
+                const file = event.target.files[0]
+                const fileExtension = file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'json'
+                
+                if (fileExtension !== this.inputFormat) {
+                    this.status = `Error: Only ${this.inputFormat.toUpperCase()} files are currently accepted`
+                    event.target.value = null
+                    return
+                }
+                
+                this.selectedFile = file
+                this.status = null
+            },
+
+            async uploadFile() {
+                if (!this.selectedFile) return
+                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    this.connectWebSocket()
+                    await new Promise(resolve => setTimeout(resolve, 1000))
+                }
+
+                this.isUploading = true
+                this.status = this.uploadOnly ? 'Uploading file...' : 'Uploading and processing file...'
+
+                try {
+                    const reader = new FileReader()
+                    reader.onload = (e) => {
+                        try {
+                            let content = e.target.result
+                            const fileType = this.selectedFile.name.toLowerCase().endsWith('.csv') ? 'csv' : 'json'
+
+                            // For JSON files, parse and validate
+                            if (fileType === 'json') {
+                                content = JSON.parse(content)
+                            }
+
+                            this.ws.send(JSON.stringify({
+                                type: 'upload',
+                                content: content,
+                                fileName: this.selectedFile.name,
+                                fileType: fileType,
+                                onlyUpload: this.uploadOnly
+                            }))
+                        } catch (error) {
+                            this.status = 'Error: Invalid file format'
+                            this.isUploading = false
+                        }
+                    }
+                    reader.readAsText(this.selectedFile)
+                } catch (error) {
+                    this.status = 'Error: Failed to read file'
+                    this.isUploading = false
+                }
+            },
+
+            connectWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+                const wsUrl = `${protocol}//${window.location.host}`
+                this.ws = new WebSocket(wsUrl)
+
+                this.ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data)
+                        if (data.type === 'upload_response') {
+                            this.status = this.uploadOnly ? 'File uploaded successfully!' : 'Upload and processing complete!'
+                            this.isUploading = false
+                        } else if (data.type === 'error') {
+                            this.status = 'Error: ' + data.data.message
+                            this.isUploading = false
+                        }
+                    } catch (error) {
+                        console.error('Failed to parse WebSocket message:', error)
+                        this.status = 'Error: Failed to process server response'
+                        this.isUploading = false
+                    }
+                }
+            }
+        },
+
+        mounted() {
+        }
+    }).mount('#upload')
+}</script>

@@ -1,0 +1,12 @@
+http:
+  routers:
+    app-router:
+      rule: "PathPrefix(`/`)"
+      service: chat-openapi-node
+      entryPoints:
+        - "web"
+  services:
+    chat-openapi-node:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.103:3000/"

@@ -5,6 +5,7 @@ services:
     expose:
       - "8085"
     command:
+      - "--log.level=DEBUG"
       - "--entryPoints.web.address=:8085"
       - "--providers.file.directory=/etc/traefik/dynamic/"
     volumes:
@@ -14,3 +15,5 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`localhost`)"
       - "traefik.http.routers.dashboard.service=api@internal"
     restart: unless-stopped
+    env_file:
+      - .env

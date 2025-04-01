@@ -142,12 +142,18 @@ class ChromaVectorStore {
                 queryEmbeddingArray = adjusted;
             }
 
-            const results = await this.collection.query({
+            const queryParams = {
                 queryEmbeddings: [queryEmbeddingArray],
                 nResults: topK,
-                where: filter,
                 include: ["metadatas", "documents", "distances"]
-            });
+            };
+
+            // Only add where filter if provided
+            if (filter && Object.keys(filter).length > 0) {
+                queryParams.where = filter;
+            }
+
+            const results = await this.collection.query(queryParams);
 
             // Format results to match Pinecone response structure
             const matches = (results.ids?.[0] || []).map((id, index) => ({

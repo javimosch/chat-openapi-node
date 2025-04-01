@@ -80,19 +80,26 @@ async function queryVectors(queryEmbedding, options = {}) {
     logger.info('Querying vectors', 'queryVectors', options);
 
     try {
-        const queryParams = {
-            vector: queryEmbedding,
-            topK: options.topK || 10,
-            includeMetadata: options.includeMetadata !== false,
-            includeValues: options.includeValues || false
-        };
-
-        // Add filter if provided
-        if (options.filter) {
-            queryParams.filter = options.filter;
+        // Handle different vector store implementations
+        let results;
+        if (process.env.VECTOR_STORE_PROVIDER === 'chromadb') {
+            // Don't use a filter for simple queries
+            results = await vectorStore.queryVectors(queryEmbedding, {
+                topK: options.topK || 10,
+                filter: options.filter
+            });
+        } else {
+            const queryParams = {
+                vector: queryEmbedding,
+                topK: options.topK || 10,
+                includeMetadata: options.includeMetadata !== false,
+                includeValues: options.includeValues || false
+            };
+            if (options.filter) {
+                queryParams.filter = options.filter;
+            }
+            results = await vectorStore.query(queryParams);
         }
-
-        const results = await vectorStore.query(queryParams);
 
         logger.debug('Successfully queried vectors', 'queryVectors', {
             matchCount: results.matches?.length

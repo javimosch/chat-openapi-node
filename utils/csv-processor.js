@@ -73,77 +73,69 @@ class OpenAPICSVProcessor {
         logger.info('Starting CSV parsing', 'parseCSV');
 
         try {
-            // Split into lines and get headers
+            // Split into lines
             const lines = fileContent.trim().split('\n');
-            const headers = lines[0].split(',');
+            const headers = lines[0].split(',').map(h => h.trim());
             
             logger.debug('CSV headers', 'parseCSV', { headers });
 
             // Process each line
-            const records = [];
+            const parsedLines = [];
             for (let i = 1; i < lines.length; i++) {
+                const fields = [];
                 const line = lines[i];
-                const record = {};
-                let currentPos = 0;
                 let currentField = '';
                 let inQuotes = false;
 
-                // Parse each field in the line
-                for (let j = 0; j < headers.length; j++) {
-                    currentField = '';
-                    inQuotes = false;
+                // Parse each character
+                for (let j = 0; j < line.length; j++) {
+                    const char = line[j];
 
-                    // Skip leading whitespace
-                    while (currentPos < line.length && line[currentPos] === ' ') {
-                        currentPos++;
-                    }
-
-                    // Handle quoted field
-                    if (line[currentPos] === '"') {
-                        inQuotes = true;
-                        currentPos++; // Skip opening quote
-                        
-                        while (currentPos < line.length) {
-                            if (line[currentPos] === '"' && line[currentPos + 1] === '"') {
-                                // Handle escaped quote
-                                currentField += '"';
-                                currentPos += 2;
-                            } else if (line[currentPos] === '"') {
-                                // End of quoted field
-                                currentPos++;
-                                break;
-                            } else {
-                                currentField += line[currentPos];
-                                currentPos++;
-                            }
-                        }
+                    if (char === '"' && (j === 0 || line[j-1] !== '\\')) {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        fields.push(currentField.trim());
+                        currentField = '';
                     } else {
-                        // Handle unquoted field
-                        while (currentPos < line.length && line[currentPos] !== ',') {
-                            currentField += line[currentPos];
-                            currentPos++;
-                        }
-                    }
-
-                    // Store raw field value
-                    const fieldName = headers[j].trim();
-                    record[fieldName] = currentField.trim();
-
-                    // Skip comma
-                    if (currentPos < line.length && line[currentPos] === ',') {
-                        currentPos++;
+                        currentField += char;
                     }
                 }
 
-                records.push(record);
+                // Push the last field
+                if (currentField) {
+                    fields.push(currentField.trim());
+                }
+
+                // Skip empty lines
+                if (fields.some(f => f.length > 0)) {
+                    parsedLines.push(fields);
+                }
             }
 
             logger.info('CSV parsing complete', 'parseCSV', {
-                totalRecords: records.length,
-                firstRecord: records[0] ? Object.keys(records[0]) : []
+                totalRecords: parsedLines.length,
+                firstRecord: parsedLines[0] || null
             });
 
-            return records;
+            // Clean up fields - remove quotes and handle escapes
+            const cleanRecords = parsedLines.map(fields => 
+                fields.map(field => field
+                    .replace(/^"(.*)"$/, '$1') // Remove surrounding quotes
+                    .replace(/\\"/g, '"')     // Un-escape quotes
+                    .trim()
+                )
+            );
+
+            // Convert array of fields to object using headers
+            const recordObjects = cleanRecords.map(fields => {
+                const record = {};
+                headers.forEach((header, index) => {
+                    record[header.trim()] = fields[index] || '';
+                });
+                return record;
+            });
+
+            return recordObjects;
 
         } catch (error) {
             logger.error('Failed to parse CSV', 'parseCSV', { error });
@@ -162,15 +154,11 @@ class OpenAPICSVProcessor {
             recordCount: records.length
         });
 
-        for (let i = 0; i < records.length; i++) {
-            const record = records[i];
-            const lineNumber = i + 2; // Add 2 to account for 0-based index and header row
-
+        for (const record of records) {
             try {
                 // Skip records without required fields
                 if (!record.ENDPOINT || !record.METHOD) {
                     errors.push({
-                        lineNumber,
                         endpoint: record.ENDPOINT || '',
                         method: record.METHOD || '',
                         error: 'Missing required fields: ENDPOINT and METHOD are required'

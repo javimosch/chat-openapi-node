@@ -1,0 +1,4 @@
+OLLAMA_BASE_URL=http://localhost:11434
+CHROMA_BASE_URL=http://localhost:8123
+OPENAPI_CSV_PATH=output/api_spec.csv
+VECTOR_STORE_PROVIDER=chromadb

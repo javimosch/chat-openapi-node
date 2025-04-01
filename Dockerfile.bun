@@ -23,7 +23,7 @@ WORKDIR /usr/src/app
 # Copy the built application
 COPY --from=builder /build-stage/dist ./dist
 COPY public ./public
-COPY views ./views
+COPY src/views /build-stage/src/views
 
 # Set the entrypoint
 CMD ["bun", "dist/server.mjs"]

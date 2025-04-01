@@ -807,6 +807,11 @@ async function generateChatResponse(query) {
                      Context:
                      ${contextText}`
         },
+        // Include previous messages from history
+        ...history.map(msg => ({
+            role: msg.role,
+            content: msg.content
+        })),
         {
             role: 'user',
             content: query

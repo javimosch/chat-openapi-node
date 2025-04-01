@@ -231,7 +231,7 @@ async function startServer() {
                                 
                                 const context = await querySimilarChunks(data.query);
                                 const enrichedDocs = await enrichDocsWithMetadata(context);
-                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs);
+                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs, data.history || []);
 
                                 await fs.writeFile('relevantDocs.json', JSON.stringify(context, null, 2));
 

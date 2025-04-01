@@ -4,7 +4,16 @@ const logger = createModuleLogger('chatService');
 const { OpenAI } = require('openai');
 const { estimateContextConsumption } = require('../utils/ai');
 const { formatDocsContext } = require('../utils/formatters');
-const { observeOpenAI } = require('langfuse');
+const { observeOpenAI,Langfuse } = require('langfuse');
+/*  
+const langfuse = new Langfuse({
+  secretKey: process.env.LANGFUSE_SECRET_KEY,
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+  baseUrl: process.env.LANGFUSE_BASEURL, // 🇪🇺 EU region
+  release: "v1.0.0",
+  requestTimeout: 10000,
+  enabled: true,
+}); */
 
 // Generate description from metadata
 function generateDescription(metadata) {
@@ -104,13 +113,19 @@ async function generateOpenAPILLMCompletion(query, context) {
             return response.data.message.content;
         } else {
 
-            const openai = observeOpenAI(new OpenAI({
+            const openai = await observeOpenAI(new OpenAI({
                 apiKey: process.env.OPENROUTER_API_KEY,
                 baseURL: 'https://openrouter.ai/api/v1',
                 headers: {
                     'HTTP-Referer': 'http://localhost:3000',
                     'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
                 }
+            },{
+                clientInitParams: {
+                    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+                    secretKey: process.env.LANGFUSE_SECRET_KEY,
+                    baseUrl: process.env.LANGFUSE_BASEURL,
+                  },
             }));
 
             const response = await openai.chat.completions.create({

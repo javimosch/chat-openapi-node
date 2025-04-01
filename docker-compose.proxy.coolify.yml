@@ -15,5 +15,3 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`localhost`)"
       - "traefik.http.routers.dashboard.service=api@internal"
     restart: unless-stopped
-    env_file:
-      - .env

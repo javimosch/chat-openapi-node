@@ -197,8 +197,13 @@ async function startServer() {
 
                         case 'chat':
                             try {
+                                logger.info('Processing chat request', 'wsChat', {
+                                    query: data.query,
+                                    historyLength: data.history?.length || 0
+                                });
+
                                 const context = await querySimilarChunks(data.query);
-                                const response = await generateChatResponse(data.query, context);
+                                const response = await generateChatResponse(data.query, data.history || []);
                                 ws.send(JSON.stringify({
                                     type: 'chat_response',
                                     data: {
@@ -206,7 +211,10 @@ async function startServer() {
                                     }
                                 }));
                             } catch (error) {
-                                logger.error('Chat error', 'wsChat', { error });
+                                logger.error('Chat error', 'wsChat', {
+                                    error: error.message,
+                                    stack: error.stack
+                                });
                                 ws.send(JSON.stringify({
                                     type: 'error',
                                     data: {

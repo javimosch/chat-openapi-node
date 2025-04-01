@@ -633,9 +633,10 @@ async function querySimilarChunks(query) {
 }
 
 // Generate chat response
-async function generateChatResponse(query) {
+async function generateChatResponse(query, history = []) {
     logger.info('Generating chat response', 'generateChatResponse', {
-        query
+        query,
+        historyLength: history?.length || 0
     });
 
     // Get similar chunks
@@ -807,6 +808,11 @@ async function generateChatResponse(query) {
                      Context:
                      ${contextText}`
         },
+        // Include previous messages from history
+        ...history.map(msg => ({
+            role: msg.role,
+            content: msg.content
+        })),
         {
             role: 'user',
             content: query

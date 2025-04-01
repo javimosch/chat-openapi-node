@@ -119,11 +119,21 @@ if (document.getElementById('app')) {
             sendMessageToServer(content) {
                 console.log('sendMessageToServer called, WebSocket state:', this.ws?.readyState)
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    // Get all messages except the last one (which is the current user message)
+                    const history = this.messages.slice(0, -1).map(msg => ({
+                        role: msg.role,
+                        content: msg.content
+                    }));
+
                     const payload = {
                         type: 'chat',
-                        query: content
+                        query: content,
+                        history: history
                     }
-                    console.log('Sending payload:', payload)
+                    console.log('Sending payload:', {
+                        ...payload,
+                        historyLength: history.length
+                    })
                     this.ws.send(JSON.stringify(payload))
                 } else {
                     console.error('WebSocket not ready')

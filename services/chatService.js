@@ -97,8 +97,9 @@ async function generateOpenAPILLMCompletion(query, context, history, options = {
             contextConsumption: estimateContextConsumption(messages)
         });
 
+        let content;
         if (useOllama) {
-            const response = await axios.post(`${process.env.OLLAMA_BASE_URL}/api/chat`, {
+           /*  const response = await axios.post(`${process.env.OLLAMA_BASE_URL}/api/chat`, {
                 model: process.env.OLLAMA_LLM_COMPLETION_MODEL || 'llama2',
                 messages,
                 stream: false,
@@ -108,23 +109,26 @@ async function generateOpenAPILLMCompletion(query, context, history, options = {
                 }
             });
 
-            return response.data.message.content;
-        } else {
+            content = response.data.message.content; */
 
-           /*  let generation, trace;
-            if (!!traceId) {
-                trace = getTrace(traceId);
-                if (trace) {
-                    generation = trace.generation({
-                        name: "chat-completion",
-                        model: process.env.OPENROUTER_MODEL,
-                        modelParameters: {
-                            temperature: 0.3,
-                        },
-                        input: messages,
-                    });
-                }
-            } */
+            const openai = await observeOpenAI(new OpenAI({
+                apiKey: 'ollama',
+                baseURL: `${process.env.OLLAMA_BASE_URL}/v1`,
+            }, {
+                clientInitParams: {
+                    publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+                    secretKey: process.env.LANGFUSE_SECRET_KEY,
+                    baseUrl: process.env.LANGFUSE_BASEURL,
+                },
+            }));
+            const response = await openai.chat.completions.create({
+                model: process.env.OLLAMA_LLM_COMPLETION_MODEL,
+                messages,
+                temperature: 0.3
+            });
+            content = response.choices[0].message.content;
+
+        } else {
 
             const openai = await observeOpenAI(new OpenAI({
                 apiKey: process.env.OPENROUTER_API_KEY,
@@ -149,49 +153,15 @@ async function generateOpenAPILLMCompletion(query, context, history, options = {
                 temperature: 0.3
             });
 
-          /*   if(generation){
-                generation.update({
-                    completionStartTime: new Date(),
-                    
-                })
-                generation.end({
-                    output: response
-                })
-            }else{
-                logger.warn('No generation found', 'generateOpenAPILLMCompletion', { traceId });
-            } */
-
-            /*  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                 method: 'POST',
-                 headers: {
-                     'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                     'HTTP-Referer': 'http://localhost:3000',
-                     'Content-Type': 'application/json',
-                     'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
-                 },
-                 body: JSON.stringify({
-                     model: process.env.OPENROUTER_MODEL,
-                     messages: messages,
-                     temperature: 0.3 // Lower temperature for more precise responses
-                 })
-             });
- 
-             if (!response.ok) {
-                 throw new Error(`OpenRouter API error: ${response.status}`);
-             }
- 
-             const data = await response.json();
- 
-             const content = data.choices[0].message.content; */
-
-            const content = response.choices[0].message.content;
-
-            logger.info('Chat completion response', 'generateOpenAPILLMCompletion', {
-                contentLen: content.length
-            });
-
-            return content || 'No response generated';
+            content = response.choices[0].message.content;
+           
         }
+
+        logger.info('Chat completion response', 'generateOpenAPILLMCompletion', {
+            contentLen: content.length
+        });
+
+        return content || 'No response generated';
 
     } catch (error) {
         logger.error('Failed to generate chat response', 'generateOpenAPILLMCompletion', { error });

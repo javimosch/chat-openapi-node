@@ -69,13 +69,13 @@ class OpenAPICSVProcessor {
     /**
      * Parse CSV content with OpenAPI specifications, storing raw string values
      */
-    async parseCSV(fileContent) {
+    async parseCSV(fileContent, delimiter = ';') {
         logger.info('Starting CSV parsing', 'parseCSV');
 
         try {
             // Split into lines and get headers
             const lines = fileContent.trim().split('\n');
-            const headers = lines[0].split(',');
+            const headers = lines[0].split(delimiter);
             
             logger.debug('CSV headers', 'parseCSV', { headers });
 
@@ -119,7 +119,7 @@ class OpenAPICSVProcessor {
                         }
                     } else {
                         // Handle unquoted field
-                        while (currentPos < line.length && line[currentPos] !== ',') {
+                        while (currentPos < line.length && line[currentPos] !== delimiter) {
                             currentField += line[currentPos];
                             currentPos++;
                         }
@@ -129,8 +129,8 @@ class OpenAPICSVProcessor {
                     const fieldName = headers[j].trim();
                     record[fieldName] = currentField.trim();
 
-                    // Skip comma
-                    if (currentPos < line.length && line[currentPos] === ',') {
+                    // Skip delimiter
+                    if (currentPos < line.length && line[currentPos] === delimiter) {
                         currentPos++;
                     }
                 }

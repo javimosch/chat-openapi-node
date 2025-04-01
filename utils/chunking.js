@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { createModuleLogger } = require('./logger');
+const { OpenAPICSVProcessor } = require('./csv-processor');
 const logger = createModuleLogger('chunking');
 
 /**
@@ -21,7 +22,8 @@ class OpenAPIChunker {
       const chunks = [
         ...await this.createInfoChunk(),
         ...await this.createPathChunks(),
-        ...await this.createComponentChunks()
+        ...await this.createComponentChunks(),
+        ...await this.createSchemaChunks()
       ];
 
       logger.info('Specification processing complete', 'processSpecification', {
@@ -71,19 +73,27 @@ class OpenAPIChunker {
       for (const [method, operation] of Object.entries(pathItem)) {
         if (typeof operation !== 'object') continue;
 
+        const { text, metadata: schemaMetadata } = this.formatPathText(path, method, operation);
+
         const chunk = {
-          text: this.formatPathText(path, method, operation),
+          text,
           metadata: {
             spec_id: this.specId,
             chunk_id: uuidv4(),
             path,
             method: method.toUpperCase(),
-            component_type: 'path'
+            component_type: 'path',
+            ...schemaMetadata
           }
         };
 
         chunks.push(chunk);
-        logger.debug('Created path chunk', 'createPathChunks', { path, method });
+        logger.debug('Created path chunk', 'createPathChunks', { 
+          path, 
+          method,
+          requestSchemas: schemaMetadata.request_schemas,
+          responseSchemas: schemaMetadata.response_schemas
+        });
       }
     }
 
@@ -102,6 +112,7 @@ class OpenAPIChunker {
     if (!components) return chunks;
 
     for (const [componentType, componentGroup] of Object.entries(components)) {
+      if (componentType === 'schemas') continue; // Skip schemas, handled separately
       for (const [name, component] of Object.entries(componentGroup)) {
         const chunk = {
           text: this.formatComponentText(componentType, name, component),
@@ -125,6 +136,52 @@ class OpenAPIChunker {
   }
 
   /**
+   * Create chunks for schema components
+   */
+  async createSchemaChunks() {
+    logger.debug('Creating schema chunks', 'createSchemaChunks');
+    
+    const chunks = [];
+    const { components } = this.spec;
+    
+    if (!components?.schemas) return chunks;
+
+    for (const [schemaName, schema] of Object.entries(components.schemas)) {
+      const text = [
+        `Schema: ${schemaName}`,
+        `Description: ${schema.description || 'No description'}`,
+        'Properties:',
+        ...Object.entries(schema.properties || {}).map(([propName, prop]) => {
+          const type = Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type;
+          const required = prop.required ? ' (required)' : '';
+          const format = prop.format ? ` (format: ${prop.format})` : '';
+          const defaultValue = prop.default ? ` (default: ${prop.default})` : '';
+          return `- ${propName}: ${type}${required}${format}${defaultValue}`;
+        })
+      ].join('\n');
+
+      const chunk = {
+        text,
+        metadata: {
+          spec_id: this.specId,
+          chunk_id: uuidv4(),
+          component_type: 'schemas',
+          component_name: schemaName,
+          schema_type: schema.type,
+          schema_format: schema.format,
+          schema_properties: Object.keys(schema.properties || {}),
+          schema_required: schema.required || []
+        }
+      };
+
+      chunks.push(chunk);
+      logger.debug('Created schema chunk', 'createSchemaChunks', { schemaName });
+    }
+
+    return chunks;
+  }
+
+  /**
    * Format info section text
    */
   formatInfoText(info) {
@@ -142,42 +199,125 @@ class OpenAPIChunker {
    */
   formatPathText(path, method, operation) {
     const parts = [];
+    const schemaRefs = {
+      request: new Set(),
+      response: new Set(),
+      requestDetails: [],  
+      responseDetails: []  
+    };
     
     if (operation.summary) parts.push(operation.summary);
     if (operation.description) parts.push(operation.description);
     
     parts.push(`${method.toUpperCase()} ${path}`);
 
-    // Add security information
-    if (operation.security || this.spec.security) {
-      const security = operation.security || this.spec.security;
-      parts.push('\nSecurity Requirements:');
-      security.forEach(requirement => {
-        Object.entries(requirement).forEach(([scheme, scopes]) => {
-          parts.push(`- ${scheme}${scopes.length ? ` (scopes: ${scopes.join(', ')})` : ''}`);
-        });
+    // Handle request body schemas
+    if (operation.requestBody?.content) {
+      parts.push('\nRequest Body:');
+      Object.entries(operation.requestBody.content).forEach(([contentType, content]) => {
+        if (content.schema) {
+          const schemaRef = content.schema.$ref;
+          if (schemaRef) {
+            const schemaName = schemaRef.split('/').pop();
+            schemaRefs.request.add(schemaName);
+            const schema = this.resolveSchemaRef(schemaRef);
+            if (schema) {
+              schemaRefs.requestDetails.push(
+                `${schemaName}:${contentType}`,
+                ...((schema.required || []).map(prop => `required:${prop}`)),
+                ...(Object.keys(schema.properties || {}).map(prop => `property:${prop}`))
+              );
+              
+              parts.push(`\nContent-Type: ${contentType}`);
+              parts.push(`Schema (${schemaName}):`);
+              Object.entries(schema.properties || {}).forEach(([propName, prop]) => {
+                const type = Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type;
+                const required = schema.required?.includes(propName) ? ' (required)' : '';
+                parts.push(`- ${propName}: ${type}${required}`);
+              });
+            }
+          }
+        }
       });
     }
 
-    if (operation.parameters) {
-      const params = operation.parameters.map(p => 
-        `${p.name} (${p.in}): ${p.description || 'No description'}`
-      );
-      parts.push('\nParameters:', ...params);
-    }
-
-    if (operation.requestBody) {
-      parts.push('\nRequest Body:', 
-        JSON.stringify(operation.requestBody, null, 2));
-    }
-
+    // Handle response schemas
     if (operation.responses) {
-      const responses = Object.entries(operation.responses)
-        .map(([code, res]) => `${code}: ${res.description || 'No description'}`);
-      parts.push('\nResponses:', ...responses);
+      parts.push('\nResponses:');
+      Object.entries(operation.responses).forEach(([code, response]) => {
+        parts.push(`\n${code}: ${response.description || 'No description'}`);
+        if (response.content) {
+          Object.entries(response.content).forEach(([contentType, content]) => {
+            if (content.schema) {
+              const schemaRef = content.schema.$ref;
+              if (schemaRef) {
+                const schemaName = schemaRef.split('/').pop();
+                schemaRefs.response.add(schemaName);
+                const schema = this.resolveSchemaRef(schemaRef);
+                if (schema) {
+                  schemaRefs.responseDetails.push(
+                    `${schemaName}:${contentType}:${code}`,
+                    ...(Object.keys(schema.properties || {}).map(prop => `property:${prop}`))
+                  );
+                }
+              }
+            }
+          });
+        }
+      });
     }
 
-    return parts.join('\n');
+    return {
+      text: parts.join('\n'),
+      metadata: {
+        request_schemas: Array.from(schemaRefs.request),
+        response_schemas: Array.from(schemaRefs.response),
+        request_schema_details: schemaRefs.requestDetails,
+        response_schema_details: schemaRefs.responseDetails
+      }
+    };
+  }
+
+  /**
+   * Resolve schema reference
+   */
+  resolveSchemaRef(ref) {
+    try {
+      const parts = ref.split('/');
+      let current = this.spec;
+      
+      // Skip the first empty part and '#'
+      for (let i = 1; i < parts.length; i++) {
+        current = current[parts[i]];
+        if (!current) return null;
+      }
+      
+      // If this schema has nested references, resolve them too
+      if (current && typeof current === 'object') {
+        const resolvedSchema = { ...current };
+        
+        // Resolve property references
+        if (resolvedSchema.properties) {
+          Object.entries(resolvedSchema.properties).forEach(([propName, propSchema]) => {
+            if (propSchema.$ref) {
+              resolvedSchema.properties[propName] = this.resolveSchemaRef(propSchema.$ref) || propSchema;
+            }
+          });
+        }
+        
+        // Resolve array item references
+        if (resolvedSchema.items && resolvedSchema.items.$ref) {
+          resolvedSchema.items = this.resolveSchemaRef(resolvedSchema.items.$ref) || resolvedSchema.items;
+        }
+        
+        return resolvedSchema;
+      }
+      
+      return current;
+    } catch (error) {
+      logger.error('Error resolving schema reference', 'resolveSchemaRef', { ref, error });
+      return null;
+    }
   }
 
   /**
@@ -237,4 +377,4 @@ class OpenAPIChunker {
   }
 }
 
-module.exports = { OpenAPIChunker };
+module.exports = { OpenAPIChunker, OpenAPICSVProcessor };

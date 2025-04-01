@@ -180,8 +180,14 @@ async function loadExistingEmbeddings(store) {
     }
 }
 
-// Query similar chunks
-async function querySimilarChunks(query) {
+/**
+ * 
+ * @param {*} query 
+ * @param {Object} options 
+ * @param {number} options.topK - Number of similar chunks to return
+ * @returns 
+ */
+async function querySimilarChunks(query, options = {}) {
     logger.info('Starting similar chunks query', 'querySimilarChunks', {
         query,
         queryLength: query.length
@@ -198,7 +204,7 @@ async function querySimilarChunks(query) {
         });
 
         const results = await queryVectors(queryEmbedding, {
-            topK: 10,
+            topK: options.topK || 4,
             includeMetadata: true,
             includeValues: false
         });

@@ -1,14 +1,33 @@
 #!/usr/bin/env node
+
 require('dotenv').config();
+
+//utils/logger.js
+//_DEPS_
 const { createModuleLogger } = require('../utils/logger');
+
+//services/vectorDbService.js
+//_DEPS_
 const { initVectorDb, querySimilarChunks } = require('../services/vectorDbService');
+
+//utils/fileSystem.js
+//_DEPS_
 const fs = require('fs');
-const { connectToMongoDB, isDbSystemEnabled } = require('../db/config');
-const Metadata = require('../models/metadata');
+
+
+//services/chatService.js
+//_DEPS_
 const { generateOpenAPILLMCompletion } = require('../services/chatService');
+
+const { enrichDocsWithMetadata } = require('../services/documentService');
+
+
+//utils/logger.js
+//_CODE_
 const logger = createModuleLogger('localChat');
 
-    
+//this-file:
+//_CODE_
 async function main() {
     try {
         const query = process.argv[2];
@@ -19,10 +38,8 @@ async function main() {
 
         logger.info('Starting chat interaction', 'main', { query });
 
-        // Initialize vector store
-        const vectorStore = await initVectorDb();
-
-        // Get relevant chunks from vector store
+        // Initialize vector store and get relevant chunks
+        await initVectorDb();
         const relevantDocs = await querySimilarChunks(query);
         
         if (!relevantDocs?.length) {
@@ -31,47 +48,14 @@ async function main() {
         }
 
         // Enrich with MongoDB metadata if available
-        let enrichedDocs = relevantDocs;
-        if (await isDbSystemEnabled()) {
-            logger.info('Enriching documents with MongoDB metadata', 'main');
-            try {
-                await connectToMongoDB();
-                const endpoints = relevantDocs.map(doc => doc.metadata.endpoint);
-                const mongoMetadata = await Metadata.find({ endpoint: { $in: endpoints } });
-                
-                // Create a map for quick lookup
-                const metadataMap = new Map(mongoMetadata.map(m => [m.endpoint, m.toJSON()]));
-                
-                // Enrich each doc with its MongoDB metadata
-                enrichedDocs = relevantDocs.map(doc => {
-                    const metadata = metadataMap.get(doc.metadata.endpoint);
-                    return {
-                        ...doc.metadata,
-                        ...(metadata||{})
-                    };
-                });
+        const enrichedDocs = await enrichDocsWithMetadata(relevantDocs);
 
-                logger.info('Successfully enriched documents with MongoDB metadata', 'main', {
-                    totalDocs: relevantDocs.length,
-                    enrichedCount: mongoMetadata.length
-                });
-            } catch (err) {
-                logger.error('Failed to enrich documents with MongoDB metadata', 'main', {
-                    message: err.message,
-                    stack: err.stack
-                });
-            }
-        }
-
-        //write relevant docs to json file as json array
+        // Save docs for debugging
         fs.writeFileSync('relevantDocs.json', JSON.stringify(enrichedDocs, null, 2));
 
-        //console.log('Relevant docs written to relevantDocs.json');
-        //process.exit(0)
-
-        const context = enrichedDocs.map(doc => JSON.stringify(doc).split('\n').join('').trim().split(' ').join('')).join('\n\n');
-
-        const response = await generateOpenAPILLMCompletion(query, context);
+        // Format context and generate completion
+        
+        const response = await generateOpenAPILLMCompletion(query, enrichedDocs);
         
         if (response) {
             console.log('\nResponse:', response);

@@ -1,9 +1,10 @@
 const { createModuleLogger } = require('../utils/logger');
 const { querySimilarChunks } = require('./vectorDbService');
 const logger = createModuleLogger('chatService');
-const fetch = require('node-fetch');
-const axios = require('axios');
+const { OpenAI } = require('openai');
 const { estimateContextConsumption } = require('../utils/ai');
+const { formatDocsContext } = require('../utils/formatters');
+const { observeOpenAI } = require('langfuse');
 
 // Generate description from metadata
 function generateDescription(metadata) {
@@ -22,7 +23,16 @@ function generateDescription(metadata) {
     return metadata.description || 'No description available';
 }
 
+/**
+ * 
+ * @param {*} query 
+ * @param {String|Array<Object>} context 
+ * @returns 
+ */
 async function generateOpenAPILLMCompletion(query, context) {
+
+    const formattedContext = formatDocsContext(context);
+    
     // Generate response
     const messages = [
         {
@@ -37,9 +47,11 @@ async function generateOpenAPILLMCompletion(query, context) {
                     - Request/response examples
                     - Headers
                  3. Use bullet points or numbered lists for multiple items
-                 4. Use headers (##) to organize different sections
-                 5. Use bold (**) for important terms
+                 4. Use headers (##) to organize different sections (titles)
+                 5. Use bold (**) for important terms that are not titles
                  6. Use tables for comparing multiple endpoints or parameters
+                 7. Do not combine ** with ##
+                 8. Remember to write valid simple markdown
                  
                  When describing authentication endpoints:
                  1. Always mention the HTTP method
@@ -54,7 +66,7 @@ async function generateOpenAPILLMCompletion(query, context) {
                  If you cannot find relevant information in the context, say so.
                  
                  Context:
-                 ${context}`
+                 ${formattedContext}`
         },
         {
             role: 'user',
@@ -83,15 +95,31 @@ async function generateOpenAPILLMCompletion(query, context) {
                 model: process.env.OLLAMA_LLM_COMPLETION_MODEL || 'llama2',
                 messages,
                 stream: false,
+                temperature:0.3,
                 "options": {
                     "num_ctx": 8192
                 }
             });
 
-            return response.data.message;
+            return response.data.message.content;
         } else {
 
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            const openai = observeOpenAI(new OpenAI({
+                apiKey: process.env.OPENROUTER_API_KEY,
+                baseURL: 'https://openrouter.ai/api/v1',
+                headers: {
+                    'HTTP-Referer': 'http://localhost:3000',
+                    'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
+                }
+            }));
+
+            const response = await openai.chat.completions.create({
+                model: process.env.OPENROUTER_MODEL,
+                messages,
+                temperature: 0.3
+            });
+
+           /*  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -112,7 +140,10 @@ async function generateOpenAPILLMCompletion(query, context) {
 
             const data = await response.json();
 
-            const content = data.choices[0].message.content;
+            const content = data.choices[0].message.content; */
+            
+            const content = response.choices[0].message.content;
+
             logger.info('Chat completion response', 'generateOpenAPILLMCompletion', {
                 contentLen: content.length
             });

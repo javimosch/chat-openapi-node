@@ -47,9 +47,11 @@ if (document.getElementById('app')) {
                         
                         if (data.type === 'chat_response') {
                             console.log('Processing chat response')
+                            let content = data.data.text || data.data.message || 'No response content'
+                            content = typeof content === 'string' ? content : JSON.stringify(content,null,4)
                             this.messages.push({
                                 role: 'assistant',
-                                content: data.data.text || data.data.message || 'No response content',
+                                content: content,
                                 id: Date.now()
                             })
                             this.isLoading = false

@@ -10,15 +10,20 @@ const path = require('path');
 const expressLayouts = require('express-ejs-layouts');
 const multer = require('multer');
 const fs = require('fs').promises;
-const { initPinecone, processOpenAPISpec, getProcessingStatus, generateChatResponse, querySimilarChunks } = require('./utils/openapi');
+const { initPinecone, processOpenAPISpec, getProcessingStatus } = require('./utils/openapi');
+const { querySimilarChunks,initVectorDb } = require('./services/vectorDbService');
 const { createModuleLogger } = require('./utils/logger');
 const basicAuth = require('express-basic-auth');
 const { connectToMongoDB, isDbSystemEnabled } = require('./db/config');
+const { generateOpenAPILLMCompletion } = require('./services/chatService');
+const { enrichDocsWithMetadata } = require('./services/documentService');
 
 const logger = createModuleLogger('server');
 
 // Create Express app and HTTP server
 const app = express();
+
+initVectorDb();
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -223,8 +228,15 @@ async function startServer() {
 
                         case 'chat':
                             try {
+                                
                                 const context = await querySimilarChunks(data.query);
-                                const response = await generateChatResponse(data.query, context);
+                                const enrichedDocs = await enrichDocsWithMetadata(context);
+                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs);
+
+                                await fs.writeFile('relevantDocs.json', JSON.stringify(context, null, 2));
+
+                                logger.info('Response:', 'wsChat', {response});
+
                                 ws.send(JSON.stringify({
                                     type: 'chat_response',
                                     data: {

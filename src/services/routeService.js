@@ -3,9 +3,9 @@
  * @description Handles route setup and request handling
  */
 
-const { createModuleLogger } = require('../utils/logger');
-const { getProcessingStatus } = require('./statusService');
-const { formatHttpResponse, formatErrorResponse } = require('../utils/responseFormatter');
+const { createModuleLogger } = require('../../utils/logger');
+const { getProcessingStatus } = require('../../services/statusService');
+const { formatHttpResponse, formatErrorResponse } = require('../../utils/responseFormatter');
 
 const logger = createModuleLogger('routeService');
 

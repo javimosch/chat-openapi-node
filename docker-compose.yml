@@ -5,17 +5,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat-openapi-node
+    image: javimosch/chat-openapi-node
     ports:
       - "3000:3000"
     env_file:
       - .env
     environment:
       - NODE_ENV=production
+      - CHROMA_BASE_URL=http://chroma:8000
+      - OLLAMA_BASE_URL=http://ollama:11434
     restart: unless-stopped
     depends_on:
-      - chroma
       - ollama
+      - chroma
 
   ollama:
     image: ollama/ollama:latest
@@ -37,6 +39,6 @@ services:
     environment:
       - ALLOW_RESET=true
       - ANONYMIZED_TELEMETRY=false
-      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["http://localhost:3000","http://localhost:3001","http://localhost:3002","http://app:3000"]
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["*"]
     restart: unless-stopped
 

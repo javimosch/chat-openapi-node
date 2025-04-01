@@ -5,7 +5,7 @@ const { OpenAI } = require('openai');
 const { estimateContextConsumption } = require('../utils/ai');
 const { formatDocsContext } = require('../utils/formatters');
 const { observeOpenAI } = require('langfuse');
-const { getTrace } = require('./llmMetricsService');
+const { getTrace } = require('../services/llmMetricsService');
 
 
 // Generate description from metadata

@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Pinecone } = require('@pinecone-database/pinecone');
-const { createModuleLogger } = require('../utils/logger');
+const { createModuleLogger } = require('../../utils/logger');
 const { isDbSystemEnabled, db, mongoose } = require('../db/config');
 const Metadata = require('../models/metadata');
 const path = require('path');

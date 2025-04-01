@@ -7,10 +7,10 @@ const express = require('express');
 const path = require('path');
 const expressLayouts = require('express-ejs-layouts');
 const basicAuth = require('express-basic-auth');
-const { createModuleLogger } = require('../utils/logger');
-const { initVectorDb } = require('./vectorDbService');
-const { connectDB } = require('../db');
-const { setupRoutes } = require('./routeService');
+const { createModuleLogger } = require('../../utils/logger');
+const { initVectorDb } = require('../../services/vectorDbService');
+const { connectDB } = require('../../db');
+const { setupRoutes } = require('../../services/routeService');
 
 const logger = createModuleLogger('configService');
 

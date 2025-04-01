@@ -3,9 +3,9 @@
  * @description Handles processing status and file spec management
  */
 
-const { createModuleLogger } = require('../utils/logger');
-const { SpecFile } = require('../db/models');
-const { formatStatusResponse } = require('../utils/responseFormatter');
+const { createModuleLogger } = require('../../utils/logger');
+const { SpecFile } = require('../../db/models');
+const { formatStatusResponse } = require('../../utils/responseFormatter');
 
 const logger = createModuleLogger('statusService');
 

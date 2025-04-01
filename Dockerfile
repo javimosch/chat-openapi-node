@@ -1,12 +1,16 @@
-FROM node:20-alpine
+FROM node:20.17.0-alpine
 
-WORKDIR /app
+WORKDIR /usr/src/app
 
+# Copy package.json and package-lock.json first to leverage Docker layer caching
 COPY package*.json ./
-RUN npm install
 
-COPY . .
+# Install dependencies in production mode
+RUN npm install --production
 
-EXPOSE 3000
+# Copy the rest of the application code
+COPY src ./src
+COPY public ./public
 
-CMD ["npm", "start"]
+# Set the entrypoint
+CMD ["npm", "run", "start"]

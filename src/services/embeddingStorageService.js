@@ -1,7 +1,7 @@
-const { createModuleLogger } = require('../utils/logger');
+const { createModuleLogger } = require('../../utils/logger');
 const { embedDocuments } = require('./embeddingService');
 const { storeVectors } = require('./vectorDbService');
-const { OpenAPIChunker } = require('../utils/chunking');
+const { OpenAPIChunker } = require('../../utils/chunking');
 
 const { processingStatus, resetProcessingStatus } = require('../config/state');
 const yaml = require('js-yaml');

@@ -1,9 +1,9 @@
 require('dotenv').config();
 
 const { Pinecone } = require('@pinecone-database/pinecone');
-const { createModuleLogger } = require('../utils/logger');
+const { createModuleLogger } = require('../../utils/logger');
 const { isDbSystemEnabled, connectToMongoDB } = require('../db/config');
-const { OpenAPICSVProcessor } = require('../utils/csv-processor');
+const { OpenAPICSVProcessor } = require('../../utils/csv-processor');
 const Metadata = require('../models/metadata');
 const path = require('path');
 const fs = require('fs').promises;

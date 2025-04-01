@@ -3,11 +3,11 @@
  * @description Handles WebSocket connections and message processing
  */
 
-const { createModuleLogger } = require('../utils/logger');
+const { createModuleLogger } = require('../../utils/logger');
 const { processOpenAPISpec } = require('./embeddingStorageService');
 const { querySimilarChunks } = require('./vectorDbService');
 const { generateChatResponse } = require('./chatService');
-const { formatWebSocketResponse, formatErrorResponse } = require('../utils/responseFormatter');
+const { formatWebSocketResponse, formatErrorResponse } = require('../../utils/responseFormatter');
 
 const logger = createModuleLogger('websocketService');
 

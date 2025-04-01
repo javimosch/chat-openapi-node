@@ -3,8 +3,6 @@
  * @description Configurable logger that supports console and MongoDB output
  */
 
-const { Log } = require('../db/models');
-
 /**
  * Create a logger instance for a specific module
  * @param {string} module - Module name for the logger
@@ -13,7 +11,7 @@ const { Log } = require('../db/models');
 function createModuleLogger(module) {
     const logLevels = ['error', 'warn', 'info', 'debug'];
     const currentLevel = process.env.LOG_LEVEL || 'info';
-    const useMongoLogs = process.env.MONGO_LOGS === '1';
+    
     
     // Get numeric value for current log level
     const currentLevelIndex = logLevels.indexOf(currentLevel);
@@ -60,16 +58,7 @@ function createModuleLogger(module) {
             console[level](consoleMessage);
         }
 
-        // MongoDB logging if enabled
-        if (useMongoLogs) {
-            try {
-                await Log.create(logData);
-            } catch (error) {
-                console.error('Failed to write log to MongoDB:', error);
-                // Fallback to console
-                console.error('Log that failed to write:', logData);
-            }
-        }
+    
     }
 
     // Create logger methods for each level

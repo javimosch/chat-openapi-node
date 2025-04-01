@@ -10,7 +10,7 @@ services:
       - "--api.insecure=true"
       - "--api.dashboard=true"
       - "--entryPoints.web.address=:8085"
-      - "--providers.file.directory=/etc/traefik/dynamic/"
+      - "--providers.file.filename=/etc/traefik/dynamic/dynamic.yml"
     volumes:
       - ./dynamic.yml:/etc/traefik/dynamic/dynamic.yml
     labels:
@@ -18,3 +18,5 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`localhost`)"
       - "traefik.http.routers.dashboard.service=api@internal"
     restart: unless-stopped
+    environment:
+      - APP_BACKEND_URL=http://192.168.1.103:3000

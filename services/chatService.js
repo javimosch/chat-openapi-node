@@ -4,16 +4,9 @@ const logger = createModuleLogger('chatService');
 const { OpenAI } = require('openai');
 const { estimateContextConsumption } = require('../utils/ai');
 const { formatDocsContext } = require('../utils/formatters');
-const { observeOpenAI,Langfuse } = require('langfuse');
-/*  
-const langfuse = new Langfuse({
-  secretKey: process.env.LANGFUSE_SECRET_KEY,
-  publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-  baseUrl: process.env.LANGFUSE_BASEURL, // 🇪🇺 EU region
-  release: "v1.0.0",
-  requestTimeout: 10000,
-  enabled: true,
-}); */
+const { observeOpenAI } = require('langfuse');
+const { getTrace } = require('./llmMetricsService');
+
 
 // Generate description from metadata
 function generateDescription(metadata) {
@@ -38,10 +31,14 @@ function generateDescription(metadata) {
  * @param {String|Array<Object>} context 
  * @returns 
  */
-async function generateOpenAPILLMCompletion(query, context) {
+async function generateOpenAPILLMCompletion(query, context, history, options = {}) {
+
+    const { traceId } = options;
+
+
 
     const formattedContext = formatDocsContext(context);
-    
+
     // Generate response
     const messages = [
         {
@@ -77,6 +74,7 @@ async function generateOpenAPILLMCompletion(query, context) {
                  Context:
                  ${formattedContext}`
         },
+        ...history,
         {
             role: 'user',
             content: query
@@ -104,7 +102,7 @@ async function generateOpenAPILLMCompletion(query, context) {
                 model: process.env.OLLAMA_LLM_COMPLETION_MODEL || 'llama2',
                 messages,
                 stream: false,
-                temperature:0.3,
+                temperature: 0.3,
                 "options": {
                     "num_ctx": 8192
                 }
@@ -113,6 +111,21 @@ async function generateOpenAPILLMCompletion(query, context) {
             return response.data.message.content;
         } else {
 
+           /*  let generation, trace;
+            if (!!traceId) {
+                trace = getTrace(traceId);
+                if (trace) {
+                    generation = trace.generation({
+                        name: "chat-completion",
+                        model: process.env.OPENROUTER_MODEL,
+                        modelParameters: {
+                            temperature: 0.3,
+                        },
+                        input: messages,
+                    });
+                }
+            } */
+
             const openai = await observeOpenAI(new OpenAI({
                 apiKey: process.env.OPENROUTER_API_KEY,
                 baseURL: 'https://openrouter.ai/api/v1',
@@ -120,13 +133,15 @@ async function generateOpenAPILLMCompletion(query, context) {
                     'HTTP-Referer': 'http://localhost:3000',
                     'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
                 }
-            },{
+            }, {
                 clientInitParams: {
                     publicKey: process.env.LANGFUSE_PUBLIC_KEY,
                     secretKey: process.env.LANGFUSE_SECRET_KEY,
                     baseUrl: process.env.LANGFUSE_BASEURL,
-                  },
+                },
             }));
+
+
 
             const response = await openai.chat.completions.create({
                 model: process.env.OPENROUTER_MODEL,
@@ -134,29 +149,41 @@ async function generateOpenAPILLMCompletion(query, context) {
                 temperature: 0.3
             });
 
-           /*  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'http://localhost:3000',
-                    'Content-Type': 'application/json',
-                    'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
-                },
-                body: JSON.stringify({
-                    model: process.env.OPENROUTER_MODEL,
-                    messages: messages,
-                    temperature: 0.3 // Lower temperature for more precise responses
+          /*   if(generation){
+                generation.update({
+                    completionStartTime: new Date(),
+                    
                 })
-            });
+                generation.end({
+                    output: response
+                })
+            }else{
+                logger.warn('No generation found', 'generateOpenAPILLMCompletion', { traceId });
+            } */
 
-            if (!response.ok) {
-                throw new Error(`OpenRouter API error: ${response.status}`);
-            }
+            /*  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                 method: 'POST',
+                 headers: {
+                     'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                     'HTTP-Referer': 'http://localhost:3000',
+                     'Content-Type': 'application/json',
+                     'X-App-Name': process.env.APP_NAME || 'chat-openapi-node'
+                 },
+                 body: JSON.stringify({
+                     model: process.env.OPENROUTER_MODEL,
+                     messages: messages,
+                     temperature: 0.3 // Lower temperature for more precise responses
+                 })
+             });
+ 
+             if (!response.ok) {
+                 throw new Error(`OpenRouter API error: ${response.status}`);
+             }
+ 
+             const data = await response.json();
+ 
+             const content = data.choices[0].message.content; */
 
-            const data = await response.json();
-
-            const content = data.choices[0].message.content; */
-            
             const content = response.choices[0].message.content;
 
             logger.info('Chat completion response', 'generateOpenAPILLMCompletion', {

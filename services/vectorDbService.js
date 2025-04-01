@@ -204,7 +204,7 @@ async function querySimilarChunks(query, options = {}) {
         });
 
         const results = await queryVectors(queryEmbedding, {
-            topK: options.topK || 4,
+            topK: options.topK || 2,
             includeMetadata: true,
             includeValues: false
         });

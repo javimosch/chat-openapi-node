@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js --ignore 'uploads/' --ignore 'imports/'",
+    "dev": "nodemon server.js --ignore 'uploads/' --ignore 'imports/' --ignore 'public/' --ignore 'views/' --ignore 'node_modules/' --ignore 'dist/' --watch services --watch utils --watch db --watch server.js",
     "migrate": "node scripts/migrate-embeddings.js",
     "prune": "node scripts/prune-uploads.js",
     "prune:logs": "node scripts/prune-import-logs.js",

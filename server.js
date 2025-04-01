@@ -17,6 +17,7 @@ const basicAuth = require('express-basic-auth');
 const { connectToMongoDB, isDbSystemEnabled } = require('./db/config');
 const { generateOpenAPILLMCompletion } = require('./services/chatService');
 const { enrichDocsWithMetadata } = require('./services/documentService');
+const { createTrace, createSpan } = require('./services/llmMetricsService');
 
 const logger = createModuleLogger('server');
 
@@ -214,8 +215,18 @@ async function startServer() {
 
             ws.on('message', async (message) => {
                 try {
+
                     const data = JSON.parse(message);
-                    logger.info('Received message', 'wsMessage', { type: data.type });
+
+                   /*  const traceId = createTrace({
+                        name: 'wsMessage',
+                        metadata: { query: data.query }
+                    }).id */
+
+                    
+
+                    
+                    logger.info('Received message', 'wsMessage', { type: data.type, traceId: undefined });
 
                     switch (data.type) {
                         case 'status':
@@ -228,10 +239,25 @@ async function startServer() {
 
                         case 'chat':
                             try {
+                                /* const span = createSpan(traceId, {
+                                    name: 'querySimilarChunks',
+                                    input: { query: data.query }
+                                }); */
                                 
-                                const context = await querySimilarChunks(data.query);
-                                const enrichedDocs = await enrichDocsWithMetadata(context);
-                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs, data.history || []);
+                                let context = [], enrichedDocs = [];
+
+                                if(data.history && data.history.length === 0) {
+                                    context = await querySimilarChunks(data.query);
+                                    enrichedDocs = await enrichDocsWithMetadata(context);
+                                }
+
+                               /*  span.end({
+                                    output: { enrichedDocs }
+                                }); */
+
+                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs, data.history || [],{
+                                    traceId: undefined
+                                });
 
                                 await fs.writeFile('relevantDocs.json', JSON.stringify(context, null, 2));
 

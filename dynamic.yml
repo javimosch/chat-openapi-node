@@ -9,4 +9,5 @@ http:
     chat-openapi-node:
       loadBalancer:
         servers:
-          - url: "http://192.168.1.103:3000/"
+          #- url: "http://192.168.1.103:3000/"
+          - url: "${APP_BACKEND_URL}"

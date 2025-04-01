@@ -1,0 +1,16 @@
+version: '3'
+services:
+  traefik:
+    image: traefik:latest
+    expose:
+      - "8085"
+    command:
+      - "--entryPoints.web.address=:8085"
+      - "--providers.file.directory=/etc/traefik/dynamic/"
+    volumes:
+      - ./dynamic.yml:/etc/traefik/dynamic/dynamic.yml
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`localhost`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+    restart: unless-stopped

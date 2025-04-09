@@ -14,6 +14,8 @@ output
 /cache/*
 chroma_data
 /uploads/*
+completion.input.json
+completion.output.json
 /imports/*
 .aider*
 cache

@@ -126,6 +126,26 @@ npm run migrate
 - Preserves existing data and relationships
 - Safe to run multiple times (idempotent)
 
+## Ollama on runpod
+
+```bash
+runpodctl create pod \
+  --imageName ollama/ollama:latest \
+  --name ollama-cpu-pod \
+  --ports "11434/tcp" \
+  --volumeSize 20 \
+  --vcpu 16 \
+  --mem 32 \
+  --env "OLLAMA_HOST=0.0.0.0" \
+  --gpuCount 1 \
+  --gpuType "NVIDIA GeForce RTX 3090"
+
+# SSH into pod using runpod dashboard and pull model
+# Click connect in pod details to get pod IP with ollama port mapped i.g 80.15.7.37:41740
+# Add to .env
+
+```
+
 ## Limitations
 
 This is a proof-of-concept implementation with the following limitations:

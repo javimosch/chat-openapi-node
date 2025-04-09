@@ -6,7 +6,7 @@ function formatDocsContext(docs) {
         doc = typeof doc === 'string' ? doc : JSON.stringify(doc);
         return doc.split('\n').join('').trim().split(' ').join('')
     }
-    ).join('\n\n');
+    ).join(`  `);
 }
 module.exports = {
     formatDocsContext

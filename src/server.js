@@ -259,7 +259,7 @@ async function startServer() {
                                     traceId: undefined
                                 });
 
-                                await fs.writeFile('relevantDocs.json', JSON.stringify(context, null, 2));
+                                await fs.writeFile('relevantDocs.json', JSON.stringify(enrichedDocs, null, 2));
 
                                 logger.info('Response:', 'wsChat', {response});
 

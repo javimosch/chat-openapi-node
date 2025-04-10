@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Embed Example</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #chat-container {
+            border: 2px dashed blue;
+            padding: 15px;
+            margin-top: 30px;
+            min-height: 800px; /* Give it some space */
+            position: relative; /* Needed if chat widget uses absolute positioning inside */
+        }
+        h1, h2 { color: #333; }
+    </style>
+</head>
+<body>
+
+    <h1>Chat Embed Demo</h1>
+    <p>This page demonstrates embedding the chat widget.</p>
+
+    <h2>Chat Container:</h2>
+    <div id="chat-container">
+        <!-- The chat widget will be initialized here -->
+        <p>Chat should appear inside this blue dashed box.</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // This function will be called by the integration script
+        function initializeMyChatWidget(chatModule) {
+            console.log("initializeMyChatWidget called!", chatModule);
+            if (chatModule && typeof chatModule.init === 'function') {
+                chatModule.init({
+                    el: '#chat-container', // Target element selector
+                    // Add any other custom options here based on chatModule's capabilities
+                    // e.g., initialMessage: "Hello from the host page!",
+                    // e.g., themeColor: "blue"
+                    apiKey: "YOUR_API_KEY_IF_NEEDED" // Example option
+                });
+                console.log("Chat initialized in #chat-container");
+            } else {
+                console.error("Chat module or init function not found!");
+            }
+        }
+
+        // Dynamically load the integration.js script
+        console.log("Loading integration script...");
+        const script = document.createElement('script');
+        // Use the function name defined above in the fnInit parameter
+        script.src = '/chat-embed/integration.js?fnInit=initializeMyChatWidget&manualInit=true';
+        script.async = true; // Load asynchronously
+        script.onerror = () => console.error("Failed to load integration script!");
+        script.onload = () => console.log("Integration script loaded.");
+        document.head.appendChild(script);
+    </script>
+
+</body>
+</html>

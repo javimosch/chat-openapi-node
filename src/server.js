@@ -19,6 +19,8 @@ const { generateOpenAPILLMCompletion } = require('./services/chatService');
 const { enrichDocsWithMetadata } = require('./services/documentService');
 const { createTrace, createSpan } = require('./services/llmMetricsService');
 
+const chatEmbedRoutes = require('./routes/chat-embed');
+
 const logger = createModuleLogger('server');
 
 // Create Express app and HTTP server
@@ -111,6 +113,8 @@ initPinecone().then(index => {
     logger.error('Failed to initialize Pinecone', 'init', { error });
 });
 
+// Use the chat embed routes
+app.use('/chat-embed', chatEmbedRoutes);
 app.use('/api/openrouter-settings', require('./routes/openrouter-settings'));
 
 app.post('/upload', upload.single('file'), async (req, res) => {

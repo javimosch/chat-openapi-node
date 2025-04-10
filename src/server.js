@@ -416,7 +416,7 @@ async function startServer() {
 
         const port = process.env.PORT || 3000;
         server.listen(port, () => {
-            logger.info(`Server is running on port ${port}`, 'startup');
+            logger.info(`Server is running on port http://localhost:${port}`, 'startup');
         });
 
     } catch (error) {

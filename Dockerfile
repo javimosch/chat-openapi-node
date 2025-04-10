@@ -11,6 +11,7 @@ RUN npm install --production
 # Copy the rest of the application code
 COPY src ./src
 COPY public ./public
+COPY embed ./embed
 
 # Set the entrypoint
 CMD ["npm", "run", "start"]

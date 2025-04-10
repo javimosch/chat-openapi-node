@@ -22,11 +22,35 @@ if (document.getElementById('app')) {
                 newMessage: '',
                 isLoading: false,
                 ws: null,
-                inputFormat: localStorage.getItem('inputFormat') || 'json'
+                inputFormat: localStorage.getItem('inputFormat') || 'json',
+                modelInput: '',
+                isSettingModel: false
             }
         },
 
         methods: {
+            async setModel() {
+                console.log('index.ejs setModel', { data: { model: this.modelInput } });
+                try {
+                    this.isSettingModel = true;
+                    const response = await fetch('/api/openrouter-settings/set', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ model: this.modelInput })
+                    });
+                    if (!response.ok) throw new Error('Failed to set model');
+                    this.modelInput = '';
+                    alert('Model set successfully!');
+                } catch (err) {
+                    console.log('index.ejs setModel error', { message: err.message, stack: err.stack });
+                    alert('Failed to set model: ' + err.message);
+                } finally {
+                    this.isSettingModel = false;
+                }
+            },
+
             connectWebSocket() {
                 console.log('Connecting WebSocket...')
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'

@@ -11,7 +11,7 @@ const expressLayouts = require('express-ejs-layouts');
 const multer = require('multer');
 const fs = require('fs').promises;
 const { initPinecone, processOpenAPISpec, getProcessingStatus } = require('./utils/openapi');
-const { querySimilarChunks,initVectorDb } = require('./services/vectorDbService');
+const { querySimilarChunks, initVectorDb } = require('./services/vectorDbService');
 const { createModuleLogger } = require('./utils/logger');
 const basicAuth = require('express-basic-auth');
 const { connectToMongoDB, isDbSystemEnabled } = require('./db/config');
@@ -110,6 +110,8 @@ initPinecone().then(index => {
 }).catch(error => {
     logger.error('Failed to initialize Pinecone', 'init', { error });
 });
+
+app.use('/api/openrouter-settings', require('./routes/openrouter-settings'));
 
 app.post('/upload', upload.single('file'), async (req, res) => {
     try {
@@ -218,14 +220,14 @@ async function startServer() {
 
                     const data = JSON.parse(message);
 
-                   /*  const traceId = createTrace({
-                        name: 'wsMessage',
-                        metadata: { query: data.query }
-                    }).id */
+                    /*  const traceId = createTrace({
+                         name: 'wsMessage',
+                         metadata: { query: data.query }
+                     }).id */
 
-                    
 
-                    
+
+
                     logger.info('Received message', 'wsMessage', { type: data.type, traceId: undefined });
 
                     switch (data.type) {
@@ -243,25 +245,25 @@ async function startServer() {
                                     name: 'querySimilarChunks',
                                     input: { query: data.query }
                                 }); */
-                                
+
                                 let context = [], enrichedDocs = [];
 
-                                if(data.history && data.history.length === 0) {
-                                    context = await querySimilarChunks(data.query);
-                                    enrichedDocs = await enrichDocsWithMetadata(context);
-                                }
 
-                               /*  span.end({
-                                    output: { enrichedDocs }
-                                }); */
+                                context = await querySimilarChunks(data.query);
+                                enrichedDocs = await enrichDocsWithMetadata(context);
 
-                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs, data.history || [],{
+
+                                /*  span.end({
+                                     output: { enrichedDocs }
+                                 }); */
+
+                                const response = await generateOpenAPILLMCompletion(data.query, enrichedDocs, data.history || [], {
                                     traceId: undefined
                                 });
 
                                 await fs.writeFile('relevantDocs.json', JSON.stringify(enrichedDocs, null, 2));
 
-                                logger.info('Response:', 'wsChat', {response});
+                                logger.info('Response:', 'wsChat', { response });
 
                                 ws.send(JSON.stringify({
                                     type: 'chat_response',
@@ -284,7 +286,7 @@ async function startServer() {
                             try {
                                 // Update INPUT_FORMAT in process.env
                                 process.env.INPUT_FORMAT = data.settings.inputFormat;
-                                
+
                                 ws.send(JSON.stringify({
                                     type: 'settings_updated'
                                 }));
@@ -297,9 +299,9 @@ async function startServer() {
                             break;
 
                         case 'upload':
-                            logger.info('Processing upload', 'wsMessage', { 
+                            logger.info('Processing upload', 'wsMessage', {
                                 fileName: data.fileName,
-                                onlyUpload: data.onlyUpload 
+                                onlyUpload: data.onlyUpload
                             });
                             try {
                                 // Create uploads directory if it doesn't exist

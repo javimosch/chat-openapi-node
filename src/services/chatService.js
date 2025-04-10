@@ -72,7 +72,7 @@ async function generateOpenAPILLMCompletion(query, context, history, options = {
         }
 
         logger.info('Generating chat completion', 'generateOpenAPILLMCompletion', {
-            modelName: useOllama ? process.env.OLLAMA_LLM_COMPLETION_MODEL : process.env.OPENROUTER_MODEL,
+            modelName: useOllama ? process.env.OLLAMA_LLM_COMPLETION_MODEL : global.OPENROUTER_MODEL || process.env.OPENROUTER_MODEL,
             messageCount: messages.length,
             contextLength: context.length,
             contextConsumption: estimateContextConsumption(messages)
@@ -136,7 +136,7 @@ async function generateOpenAPILLMCompletion(query, context, history, options = {
 
 
             const response = await openai.chat.completions.create({
-                model: process.env.OPENROUTER_MODEL,
+                model: global.OPENROUTER_MODEL ||process.env.OPENROUTER_MODEL,
                 messages,
                 temperature: 0.3
             });

@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon --exec 'node src/server.js' --watch src",
+    "dev": "nodemon --exec 'node src/server.js' --watch src --watch .env",
     "migrate": "node scripts/migrate-embeddings.js",
     "prune": "node scripts/prune-uploads.js",
     "prune:logs": "node scripts/prune-import-logs.js",
